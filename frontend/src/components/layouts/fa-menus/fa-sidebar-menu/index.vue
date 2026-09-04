@@ -1,0 +1,1289 @@
+﻿<!-- 左侧菜单 或 双列菜单 -->
+<template>
+  <div
+    class="layout-sidebar"
+    v-if="showLeftMenu || isDualMenu"
+    :class="{ 'no-border': menuList.length === 0 }"
+  >
+    <!-- 双列菜单（左侧） -->
+    <div
+      v-if="isDualMenu"
+      class="dual-menu-left"
+      :style="{ width: dualMenuShowText ? '80px' : '64px', background: getMenuTheme.background }"
+    >
+      <FaLogo v-if="showAppLogo" class="logo" :src="sidebarLogoSrc" @click="navigateToHome" />
+
+      <ElScrollbar :style="{ height: 'calc(100% - 135px)' }">
+        <ul>
+          <li v-for="menu in firstLevelMenus" :key="menu.path" @click="handleMenuJump(menu, true)">
+            <ElTooltip
+              class="box-item"
+              effect="dark"
+              :content="$t(menu.meta.title)"
+              placement="right"
+              :offset="15"
+              :hide-after="0"
+              :disabled="dualMenuShowText"
+            >
+              <div
+                :class="{
+                  'is-active': menu.meta.isFirstLevel
+                    ? menu.path === route.path
+                    : menu.path === firstLevelMenuPath,
+                }"
+                :style="{
+                  height: dualMenuShowText ? '60px' : '46px',
+                }"
+              >
+                <FaMenuRouteIcon
+                  class="menu-icon text-g-700 dark:text-g-800"
+                  :icon="menu.meta.icon"
+                  :style="{
+                    marginBottom: dualMenuShowText ? '5px' : '0',
+                  }"
+                />
+                <span v-if="dualMenuShowText" class="text-md text-g-700">
+                  {{ $t(menu.meta.title) }}
+                </span>
+                <div v-if="menu.meta.showBadge" class="fa-badge fa-badge-dual" />
+              </div>
+            </ElTooltip>
+          </li>
+        </ul>
+      </ElScrollbar>
+
+      <FaIconButton
+        class="switch-btn size-10"
+        icon="ri:arrow-left-right-fill"
+        @click="toggleDualMenuMode"
+      />
+    </div>
+
+    <!-- 左侧菜单 || 双列菜单（右侧） -->
+    <div
+      v-show="menuList.length > 0"
+      class="menu-left"
+      :class="`menu-left-${getMenuTheme.theme} menu-left-${!menuOpen ? 'close' : 'open'}`"
+      :style="{ background: getMenuTheme.background }"
+    >
+      <!-- Logo、系统名称（开关同时控制 Logo 与标题） -->
+      <div
+        v-if="showAppLogo"
+        class="header"
+        @click="navigateToHome"
+        :style="{
+          background: getMenuTheme.background,
+        }"
+      >
+        <div class="header-brand">
+          <div class="header-brand__logo">
+            <FaLogo v-if="!isDualMenu" class="logo" :src="sidebarLogoSrc" />
+          </div>
+          <div class="header-brand__text">
+            <p
+              :class="{ 'is-dual-menu-name': isDualMenu }"
+              :style="{
+                color: getMenuTheme.systemNameColor,
+                opacity: !menuOpen ? 0 : 1,
+              }"
+            >
+              {{ sidebarTitle }}
+            </p>
+            <span class="header-brand__subtitle">OPERATIONS</span>
+          </div>
+        </div>
+        <!-- 主动折叠/展开按钮（仅在非双列菜单下显示） -->
+        <button
+          v-if="!isDualMenu"
+          class="header-collapse-btn"
+          :aria-label="menuOpen ? '收起侧边栏' : '展开侧边栏'"
+          :title="menuOpen ? '收起侧边栏' : '展开侧边栏'"
+          @click.stop="toggleMenuVisibility"
+        >
+          <FaSvgIcon :icon="menuOpen ? 'ri:menu-fold-3-line' : 'ri:menu-unfold-3-line'" />
+        </button>
+      </div>
+      <ElScrollbar :style="scrollbarStyle">
+        <ElMenu
+          ref="elMenuRef"
+          :class="'el-menu-' + getMenuTheme.theme"
+          :collapse="!menuOpen"
+          :default-active="routerPath"
+          :text-color="getMenuTheme.textColor"
+          :unique-opened="false"
+          :background-color="getMenuTheme.background"
+          :default-openeds="defaultOpenedMenus"
+          :popper-class="`menu-left-popper menu-left-${getMenuTheme.theme}-popper`"
+          :show-timeout="50"
+          :hide-timeout="50"
+        >
+          <SidebarSubmenu
+            :list="menuList"
+            :isMobile="isMobileMode"
+            :theme="getMenuTheme"
+            @close="handleMenuClose"
+          />
+        </ElMenu>
+      </ElScrollbar>
+
+      <!-- 双列菜单右侧折叠按钮 -->
+      <div class="dual-menu-collapse-btn" v-if="isDualMenu" @click="toggleMenuVisibility">
+        <FaSvgIcon
+          class="text-g-500/70"
+          :icon="menuOpen ? 'ri:arrow-left-wide-fill' : 'ri:arrow-right-wide-fill'"
+        />
+      </div>
+
+      <div
+        class="menu-model"
+        @click="toggleMenuVisibility"
+        :style="{
+          opacity: !menuOpen ? 0 : 1,
+          transform: showMobileModal ? 'scale(1)' : 'scale(0)',
+        }"
+      />
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import AppConfig from "@/config";
+import type { AppRouteRecord } from "@/types/router";
+import { useConfigStore, useSettingsStore, useMenuStore } from "@stores";
+import { MenuTypeEnum, MenuWidth } from "@/enums/appEnum";
+import { isIframe, handleMenuJump } from "@utils";
+import SidebarSubmenu from "./widgets/FaSidebarSubmenu.vue";
+import { useCommon } from "@/hooks/core/useCommon";
+import { useWindowSize, useTimeoutFn } from "@vueuse/core";
+
+defineOptions({ name: "FaSidebarMenu" });
+
+const MOBILE_BREAKPOINT = 800;
+const ANIMATION_DELAY = 350;
+const MENU_CLOSE_WIDTH = MenuWidth.CLOSE;
+
+const route = useRoute();
+const router = useRouter();
+const settingStore = useSettingsStore();
+const configStore = useConfigStore();
+
+/** 系统配置：system_logo / system_name */
+const sidebarLogoSrc = computed(() => {
+  const raw = configStore.configData.system_logo?.config_value;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+});
+
+const sidebarTitle = computed(() => {
+  const raw = configStore.configData.system_name?.config_value;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return AppConfig.systemInfo.name;
+});
+
+const { getMenuOpenWidth, menuType, dualMenuShowText, menuOpen, getMenuTheme, showAppLogo } =
+  storeToRefs(settingStore);
+
+// ElMenu 组件引用
+const elMenuRef = ref();
+
+const isMobileMode = ref(false);
+const showMobileModal = ref(false);
+
+// 使用 VueUse 的窗口尺寸监听
+const { width } = useWindowSize();
+
+// 菜单宽度相关
+const menuopenwidth = computed(() => getMenuOpenWidth.value);
+const menuclosewidth = computed(() => MENU_CLOSE_WIDTH);
+
+// 菜单类型判断
+const isTopLeftMenu = computed(() => menuType.value === MenuTypeEnum.TOP_LEFT);
+const showLeftMenu = computed(
+  () => menuType.value === MenuTypeEnum.LEFT || menuType.value === MenuTypeEnum.TOP_LEFT
+);
+const isDualMenu = computed(() => menuType.value === MenuTypeEnum.DUAL_MENU);
+
+// 移动端屏幕判断（使用 computed 避免重复计算）
+const isMobileScreen = computed(() => width.value < MOBILE_BREAKPOINT);
+
+// 路由相关
+const firstLevelMenuPath = computed(() => route.matched[0]?.path);
+const routerPath = computed(() => String(route.meta.activePath || route.path));
+
+// 菜单数据
+const firstLevelMenus = computed(() => {
+  return injectMenuGroup(useMenuStore().menuList).filter((menu) => !menu.meta.isHide);
+});
+
+/**
+ * 临时：按一级路径为菜单注入 meta.group，用于前端展示分组标题。
+ * 后续建议由后端菜单接口直接返回 meta.group，届时可移除此 helper。
+ */
+function injectMenuGroup(menus: AppRouteRecord[]): AppRouteRecord[] {
+  const groupMap: Record<string, string> = {
+    home: "总览",
+    monitor: "总览",
+    dashboard: "总览",
+    system: "系统",
+    ai: "AI 中枢",
+  };
+
+  return menus.map((menu) => {
+    const key = menu.path?.replace(/^\//, "").split("/")[0];
+    if (!key || !groupMap[key]) return menu;
+    return {
+      ...menu,
+      meta: { ...menu.meta, group: groupMap[key] },
+    };
+  });
+}
+
+const menuList = computed(() => {
+  const menuStore = useMenuStore();
+  const allMenus = injectMenuGroup(menuStore.menuList);
+
+  // 如果不是顶部左侧菜单或双列菜单，直接返回完整菜单列表
+  if (!isTopLeftMenu.value && !isDualMenu.value) {
+    return allMenus;
+  }
+
+  // 处理 iframe 路径
+  if (isIframe(route.path)) {
+    return findIframeMenuList(route.path, allMenus);
+  }
+
+  // 处理一级菜单
+  if (route.meta.isFirstLevel) {
+    return [];
+  }
+
+  // 返回当前顶级路径对应的子菜单
+  const currentTopPath = `/${route.path.split("/")[1]}`;
+  let currentMenu = allMenus.find((menu) => menu.path === currentTopPath);
+  if (!currentMenu && allMenus.length > 0) {
+    currentMenu =
+      allMenus.find((menu) => !menu.meta?.isHide && menu.children?.length) ?? allMenus[0];
+  }
+  const sub = currentMenu?.children ?? [];
+  // 顶部+左侧 / 双列：顶级为叶子时右侧展示自身
+  if (sub.length === 0 && currentMenu?.path && !currentMenu.meta?.isHide) {
+    return [currentMenu];
+  }
+  return sub;
+});
+
+/** 收集所有含子菜单的菜单项 index，用于强制全部展开（消除下拉折叠行为） */
+const allSubmenuIndexes = computed(() => {
+  const indexes: string[] = [];
+  const collect = (items: AppRouteRecord[]) => {
+    items.forEach((item) => {
+      if (item.children && item.children.length > 0) {
+        indexes.push(item.path || item.meta.title);
+        collect(item.children);
+      }
+    });
+  };
+  collect(menuList.value);
+  return indexes;
+});
+
+/** 默认展开所有子菜单 */
+const defaultOpenedMenus = computed(() => allSubmenuIndexes.value);
+
+/** 展开模式下强制保持所有子菜单打开，禁止折叠 */
+watch(
+  [allSubmenuIndexes, menuOpen],
+  () => {
+    if (!menuOpen.value) return;
+    nextTick(() => {
+      allSubmenuIndexes.value.forEach((idx) => {
+        elMenuRef.value?.open(idx);
+      });
+    });
+  },
+  { immediate: true }
+);
+
+// 双列菜单收起时的滚动条样式
+const scrollbarStyle = computed(() => {
+  const isCollapsed = isDualMenu.value && !menuOpen.value;
+  return {
+    transform: isCollapsed ? "translateY(-50px)" : "translateY(0)",
+    height: isCollapsed ? "calc(100% + 50px)" : "calc(100% - 60px)",
+    transition: "transform 0.3s ease",
+  };
+});
+
+/**
+ * 延迟隐藏移动端模态框（使用 VueUse 的 useTimeoutFn）
+ */
+const { start: delayHideMobileModal } = useTimeoutFn(
+  () => {
+    showMobileModal.value = false;
+  },
+  ANIMATION_DELAY,
+  { immediate: false }
+);
+
+/**
+ * 查找 iframe 对应的二级菜单列表
+ */
+const findIframeMenuList = (currentPath: string, menuList: any[]) => {
+  // 递归查找包含当前路径的菜单项
+  const hasPath = (items: any[]): boolean => {
+    for (const item of items) {
+      if (item.path === currentPath) {
+        return true;
+      }
+      if (item.children && hasPath(item.children)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // 遍历一级菜单查找匹配的子菜单
+  for (const menu of menuList) {
+    if (menu.children && hasPath(menu.children)) {
+      return menu.children;
+    }
+  }
+  return [];
+};
+
+const { homePath } = useCommon();
+
+/**
+ * 导航到首页
+ */
+const navigateToHome = (): void => {
+  router.push(homePath.value);
+};
+
+/**
+ * 切换菜单显示/隐藏
+ */
+const toggleMenuVisibility = (): void => {
+  settingStore.setMenuOpen(!menuOpen.value);
+
+  // 移动端模态框控制逻辑
+  if (isMobileScreen.value) {
+    if (!menuOpen.value) {
+      // 菜单即将打开，立即显示模态框
+      showMobileModal.value = true;
+    } else {
+      // 菜单即将关闭，延迟隐藏模态框确保动画完成
+      delayHideMobileModal();
+    }
+  }
+};
+
+/**
+ * 处理菜单关闭（来自子组件）
+ */
+const handleMenuClose = (): void => {
+  if (isMobileScreen.value) {
+    settingStore.setMenuOpen(false);
+    delayHideMobileModal();
+  }
+};
+
+/**
+ * 切换双列菜单模式
+ */
+const toggleDualMenuMode = (): void => {
+  settingStore.setDualMenuShowText(!dualMenuShowText.value);
+};
+
+/**
+ * 监听窗口尺寸变化，自动处理移动端菜单
+ */
+watch(width, (newWidth) => {
+  if (newWidth < MOBILE_BREAKPOINT) {
+    settingStore.setMenuOpen(false);
+    if (!menuOpen.value) {
+      showMobileModal.value = false;
+    }
+  } else {
+    showMobileModal.value = false;
+  }
+});
+
+/**
+ * 监听菜单开关状态变化
+ */
+watch(menuOpen, (isMenuOpen: boolean) => {
+  if (!isMobileScreen.value) {
+    // 大屏幕设备上，模态框始终隐藏
+    showMobileModal.value = false;
+  } else {
+    // 小屏幕设备上，根据菜单状态控制模态框
+    if (isMenuOpen) {
+      // 菜单打开时立即显示模态框
+      showMobileModal.value = true;
+    } else {
+      // 菜单关闭时延迟隐藏模态框，确保动画完成
+      delayHideMobileModal();
+    }
+  }
+});
+</script>
+
+<style lang="scss" scoped>
+.layout-sidebar {
+  display: flex;
+  height: 100vh;
+  user-select: none;
+  scrollbar-width: none;
+  background: var(--fa-color-sidebar, var(--default-box-color));
+  border-right: 1px solid rgb(255 255 255 / 8%);
+  box-shadow: 18px 0 42px rgb(11 18 32 / 12%);
+
+  &.no-border {
+    border-right: none !important;
+  }
+
+  :deep(.el-scrollbar__bar.is-vertical) {
+    width: 4px;
+  }
+
+  :deep(.el-scrollbar__thumb) {
+    right: -2px;
+    background-color: color-mix(in srgb, var(--fa-gray-500) 38%, transparent);
+    border-radius: 2px;
+  }
+
+  .dual-menu-left {
+    position: relative;
+    width: 80px;
+    height: 100%;
+    border-right: 1px solid var(--fa-card-border) !important;
+    transition: width 0.25s;
+
+    .logo {
+      margin: auto;
+      margin-top: 12px;
+      margin-bottom: 3px;
+      cursor: pointer;
+    }
+
+    ul {
+      li {
+        > div {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          margin: 8px;
+          overflow: hidden;
+          text-align: center;
+          cursor: pointer;
+          border-radius: 8px;
+
+          .art-svg-icon {
+            display: block;
+            margin: 0 auto;
+            font-size: 20px;
+          }
+
+          span {
+            display: -webkit-box;
+            width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            -webkit-line-clamp: 1;
+            line-clamp: 1;
+            font-size: 12px;
+            -webkit-box-orient: vertical;
+          }
+
+          &.is-active {
+            background: color-mix(in srgb, var(--theme-color) 10%, var(--default-box-color));
+
+            .art-svg-icon,
+            span {
+              color: var(--theme-color) !important;
+            }
+          }
+        }
+      }
+    }
+
+    .switch-btn {
+      position: absolute;
+      right: 0;
+      bottom: 15px;
+      left: 0;
+      margin: auto;
+    }
+  }
+
+  .menu-left {
+    position: relative;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    min-width: 0;
+    height: 100vh;
+    border-right: 1px solid rgb(255 255 255 / 7%);
+    transition: width 0.25s ease;
+
+    &::before {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      content: "";
+      background:
+        radial-gradient(
+          circle at 20% 4%,
+          color-mix(in srgb, var(--theme-color) 10%, transparent),
+          transparent 24%
+        ),
+        linear-gradient(180deg, rgb(255 255 255 / 2%), transparent 26%);
+    }
+
+    > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    @media only screen and (width <= 640px) {
+      height: 100dvh;
+    }
+
+    .el-menu {
+      height: 100%;
+    }
+
+    &:hover {
+      .dual-menu-collapse-btn {
+        opacity: 1 !important;
+      }
+    }
+
+    .dual-menu-collapse-btn {
+      position: absolute;
+      top: 50%;
+      right: -11px;
+      z-index: 10;
+      width: 11px;
+      height: 50px;
+      cursor: pointer;
+      background-color: var(--default-box-color);
+      border: 1px solid var(--fa-card-border);
+      border-radius: 0 8px 8px 0;
+      opacity: 0;
+      transform: translateY(-50%);
+      transition: opacity 0.2s;
+
+      &:hover {
+        .art-svg-icon {
+          color: var(--fa-gray-800) !important;
+        }
+      }
+
+      .art-svg-icon {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -4px;
+        margin: auto;
+        transition: all 0.3s;
+      }
+    }
+  }
+
+  .header {
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 68px;
+    padding: 0 14px;
+    overflow: hidden;
+    line-height: 1.2;
+    cursor: pointer;
+    border-bottom: 1px solid rgb(11 18 32 / 6%);
+
+    .header-brand {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      width: calc(100% - 34px);
+      min-width: 0;
+
+      &__logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        background: var(--theme-color);
+        border-radius: 9px;
+        box-shadow: 0 4px 10px color-mix(in srgb, var(--theme-color) 24%, transparent);
+
+        .logo {
+          width: 20px;
+          height: 20px;
+          margin: 0;
+          color: #fff;
+        }
+      }
+
+      &__text {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-width: 0;
+        overflow: hidden;
+        transition: opacity 0.25s ease;
+
+        p {
+          position: static;
+          top: auto;
+          bottom: auto;
+          left: auto;
+          margin: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-size: 17px;
+          font-weight: 760;
+          line-height: 1.2;
+          letter-spacing: -0.01em;
+          white-space: nowrap;
+
+          &.is-dual-menu-name {
+            left: auto;
+            margin: auto;
+          }
+        }
+      }
+
+      &__subtitle {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--fa-gray-500);
+        letter-spacing: 0.12em;
+      }
+    }
+
+    .header-collapse-btn {
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      z-index: 2;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      margin: 0;
+      font-size: 16px;
+      color: var(--fa-gray-500);
+      cursor: pointer;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      transform: translateY(-50%);
+      transition:
+        background 0.18s ease,
+        color 0.18s ease,
+        border-color 0.18s ease;
+
+      &:hover {
+        color: var(--theme-color);
+        background: color-mix(in srgb, var(--theme-color) 8%, transparent);
+        border-color: color-mix(in srgb, var(--theme-color) 18%, transparent);
+      }
+
+      &:focus-visible {
+        outline: none;
+        box-shadow: var(--fa-focus-ring);
+      }
+
+      .fa-svg-icon {
+        transition: color 0.18s ease;
+      }
+    }
+
+    .menu-left-close .header-collapse-btn {
+      right: 50%;
+      transform: translate(50%, -50%);
+    }
+  }
+
+  .el-menu {
+    box-sizing: border-box;
+
+    /* 防止菜单内的滚动影响整个页面滚动 */
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    border-right: 0;
+    -ms-scroll-chaining: contain;
+
+    &::-webkit-scrollbar {
+      width: 0 !important;
+    }
+  }
+
+  .menu-model {
+    display: none;
+  }
+}
+
+@media only screen and (width <= 800px) {
+  .layout-sidebar {
+    width: 0;
+
+    .header {
+      height: 50px;
+      line-height: 50px;
+    }
+
+    .el-menu {
+      height: calc(100vh - 60px);
+    }
+
+    .el-menu--collapse {
+      width: 0;
+    }
+
+    /* 折叠状态下的header样式 */
+    .menu-left-close .header {
+      .logo {
+        display: none;
+      }
+
+      p {
+        left: 16px;
+        font-size: 0;
+        opacity: 0 !important;
+      }
+    }
+
+    .menu-model {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: -1;
+      display: block;
+      width: 100%;
+      height: 100vh;
+      background: rgba($color: #000, $alpha: 50%);
+      transition: opacity 0.2s ease-in-out;
+    }
+  }
+}
+
+@media only screen and (width <= 640px) {
+  .layout-sidebar {
+    border-right: 0 !important;
+  }
+}
+
+.dark {
+  .layout-sidebar {
+    border-right: 1px solid rgb(255 255 255 / 13%);
+
+    :deep(.el-scrollbar__thumb) {
+      background-color: #777;
+    }
+
+    .dual-menu-left {
+      border-right: 1px solid rgb(255 255 255 / 9%) !important;
+    }
+  }
+}
+</style>
+
+<style lang="scss">
+@use "@styles/core/mixin.scss" as *;
+
+/* 一级菜单分组标题 */
+.fa-menu-group-title {
+  display: flex;
+  align-items: center;
+  padding: 18px 14px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fa-gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  user-select: none;
+}
+
+/* 菜单样式变量 */
+$menu-height: 40px;
+$menu-icon-size: 20px;
+$menu-font-size: 14px;
+$hover-bg-color: color-mix(in srgb, var(--fa-gray-200) 82%, var(--default-box-color));
+$popup-menu-height: 40px;
+$popup-menu-padding: 8px;
+$popup-menu-margin: 5px;
+$popup-menu-radius: 6px;
+
+/* 通用菜单项样式 */
+@mixin menu-item-base {
+  width: 100%;
+  padding: 0 12px 0 14px;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+
+  .menu-icon {
+    margin-right: 10px;
+    margin-left: 0;
+  }
+}
+
+/* 通用 hover 样式 */
+@mixin menu-hover($bg-color, $icon-bg-color: transparent) {
+  .el-sub-menu__title:hover,
+  .el-menu-item:not(.is-active):hover {
+    background: $bg-color !important;
+
+    .menu-icon {
+      background: $icon-bg-color;
+    }
+  }
+}
+
+/* 通用选中样式 */
+@mixin menu-active($color, $bg-color, $icon-color: var(--theme-color)) {
+  .el-menu-item.is-active {
+    position: relative;
+    color: $color !important;
+    background: $bg-color !important;
+    border-color: transparent;
+    border-radius: 0;
+    box-shadow: none;
+
+    &::before {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 3px;
+      content: "";
+      background: var(--theme-color);
+      border-radius: 0 3px 3px 0;
+    }
+
+    .menu-icon {
+      color: $icon-color !important;
+      background: color-mix(in srgb, var(--theme-color) 14%, transparent);
+      box-shadow: none;
+
+      .art-svg-icon {
+        color: $icon-color !important;
+      }
+    }
+
+    span,
+    .menu-name {
+      font-weight: 600;
+      color: $color !important;
+    }
+  }
+}
+
+/* 弹窗菜单项样式 */
+@mixin popup-menu-item {
+  height: $popup-menu-height;
+  margin-bottom: $popup-menu-margin;
+  border-radius: $popup-menu-radius;
+
+  .menu-icon {
+    margin-right: 5px;
+  }
+
+  &:last-of-type {
+    margin-bottom: 0;
+  }
+}
+
+/* 主题菜单通用样式（合并 design 和 dark 主题的共同逻辑） */
+@mixin theme-menu-base {
+  .el-sub-menu__title,
+  .el-menu-item {
+    @include menu-item-base;
+  }
+}
+
+/* 弹窗菜单通用样式 */
+@mixin popup-menu-base($hover-bg, $active-color, $active-bg) {
+  .el-menu--popup {
+    padding: $popup-menu-padding;
+
+    .el-sub-menu__title:hover,
+    .el-menu-item:hover {
+      background-color: $hover-bg !important;
+      border-radius: $popup-menu-radius;
+    }
+
+    .el-menu-item {
+      @include popup-menu-item;
+
+      &.is-active {
+        color: $active-color !important;
+        background-color: $active-bg !important;
+      }
+    }
+
+    .el-sub-menu {
+      @include popup-menu-item;
+
+      height: $popup-menu-height !important;
+
+      .el-sub-menu__title {
+        height: $popup-menu-height !important;
+        border-radius: $popup-menu-radius;
+      }
+    }
+  }
+}
+
+.layout-sidebar {
+  /* ---------------------- Modify default style ---------------------- */
+
+  /* 菜单折叠样式 */
+  .menu-left-close {
+    .header {
+      .logo {
+        margin: 0 auto;
+      }
+    }
+  }
+
+  /* 菜单图标 */
+  .menu-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin-right: 10px;
+    margin-left: 0;
+    font-size: 17px;
+    color: var(--fa-gray-600);
+    background: transparent;
+    border-radius: 7px;
+    transition:
+      background 0.2s ease,
+      box-shadow 0.2s ease,
+      color 0.2s ease;
+
+    .art-svg-icon {
+      transition: color 0.2s ease;
+    }
+  }
+
+  /* 菜单高度 */
+  .el-sub-menu__title,
+  .el-menu-item {
+    height: $menu-height !important;
+    margin-bottom: 4px;
+    line-height: $menu-height !important;
+    transition:
+      background-color 0.2s ease,
+      border-color 0.2s ease,
+      color 0.2s ease;
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: var(--fa-focus-ring);
+    }
+
+    span {
+      font-size: $menu-font-size !important;
+
+      @include ellipsis();
+    }
+  }
+
+  /* 右侧箭头 */
+  .el-sub-menu__icon-arrow {
+    width: 13px !important;
+    font-size: 13px !important;
+  }
+
+  /* 展开模式：隐藏折叠箭头，禁止子菜单标题点击，消除下拉感 */
+  .el-menu:not(.el-menu--collapse) {
+    .el-sub-menu__icon-arrow {
+      display: none !important;
+    }
+
+    .el-sub-menu__title {
+      pointer-events: none !important;
+      cursor: default !important;
+
+      &:hover,
+      &:focus {
+        background-color: transparent !important;
+      }
+
+      .menu-name {
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        color: var(--fa-gray-500) !important;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .menu-icon {
+        opacity: 0.45;
+      }
+    }
+  }
+
+  /* 菜单折叠 */
+  .el-menu--collapse {
+    .fa-menu-group-title {
+      display: none;
+    }
+
+    .el-sub-menu.is-active {
+      .el-sub-menu__title {
+        .menu-icon {
+          .art-svg-icon {
+            // 选中菜单图标颜色
+            color: var(--theme-color) !important;
+          }
+        }
+      }
+    }
+
+    .el-menu-item,
+    .el-sub-menu__title {
+      justify-content: center;
+      padding: 0;
+
+      .menu-icon {
+        margin-right: 0;
+      }
+    }
+  }
+
+  /* ---------------------- Design theme menu ---------------------- */
+  .el-menu-design {
+    @include theme-menu-base;
+    @include menu-active(
+      var(--theme-color),
+      color-mix(in srgb, var(--theme-color) 10%, var(--default-box-color))
+    );
+    @include menu-hover($hover-bg-color, var(--fa-gray-200));
+
+    .el-sub-menu__icon-arrow {
+      color: var(--fa-gray-600);
+    }
+  }
+
+  /* ---------------------- Dark theme menu ---------------------- */
+  .el-menu-dark {
+    @include theme-menu-base;
+    @include menu-active(
+      var(--theme-color),
+      color-mix(in srgb, var(--theme-color) 10%, var(--default-box-color))
+    );
+    @include menu-hover(rgb(255 255 255 / 8%), rgb(255 255 255 / 10%));
+
+    .el-sub-menu__icon-arrow {
+      color: rgb(203 213 225 / 72%);
+    }
+  }
+
+  /* ---------------------- Light theme menu ---------------------- */
+  .el-menu-light {
+    .el-menu-item.is-active {
+      color: var(--theme-color) !important;
+      background: color-mix(in srgb, var(--theme-color) 10%, var(--default-box-color)) !important;
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+
+      &::before {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 3px;
+        content: "";
+        background: var(--theme-color);
+        border-radius: 0 3px 3px 0;
+      }
+
+      .menu-icon {
+        color: var(--theme-color) !important;
+        background: color-mix(in srgb, var(--theme-color) 14%, transparent);
+        box-shadow: none;
+      }
+
+      .art-svg-icon,
+      .menu-name {
+        color: var(--theme-color) !important;
+      }
+    }
+
+    @include menu-hover($hover-bg-color, var(--fa-gray-200));
+
+    .el-sub-menu__icon-arrow {
+      color: var(--fa-gray-600);
+    }
+  }
+}
+
+@media only screen and (width <= 640px) {
+  .layout-sidebar {
+    .el-menu-design {
+      > .el-sub-menu {
+        margin-left: 0;
+      }
+
+      .el-sub-menu {
+        width: 100% !important;
+      }
+    }
+  }
+}
+
+/* 菜单折叠 hover 弹窗样式（浅色主题） */
+.el-menu--vertical,
+.el-menu--popup-container {
+  @include popup-menu-base(var(--fa-gray-200), var(--fa-gray-900), var(--fa-gray-200));
+}
+
+/* 暗黑模式菜单样式 */
+.dark {
+  .fa-menu-group-title {
+    color: rgb(148 163 184 / 72%);
+  }
+
+  .layout-sidebar .el-menu:not(.el-menu--collapse) .el-sub-menu__title .menu-name {
+    color: rgb(148 163 184 / 72%) !important;
+  }
+
+  .el-menu--vertical,
+  .el-menu--popup-container {
+    @include popup-menu-base(var(--fa-gray-200), var(--fa-gray-900), #292a2e);
+  }
+
+  .layout-sidebar {
+    background: var(--fa-color-sidebar, #0b1220);
+
+    /* 图标颜色、文字颜色 */
+    .menu-icon .art-svg-icon,
+    .menu-name {
+      color: rgb(203 213 225 / 82%) !important;
+    }
+
+    /* 选中的文字颜色跟图标颜色 */
+    .el-menu-item.is-active {
+      span,
+      .menu-icon .art-svg-icon {
+        color: var(--theme-color) !important;
+      }
+
+      .menu-icon {
+        background: color-mix(in srgb, var(--theme-color) 16%, transparent);
+        box-shadow: none;
+      }
+    }
+
+    /* 右侧箭头颜色 */
+    .el-sub-menu__icon-arrow {
+      color: rgb(203 213 225 / 72%);
+    }
+  }
+}
+
+.layout-sidebar {
+  .el-menu-dark {
+    .el-sub-menu__title,
+    .el-menu-item {
+      color: rgb(203 213 225 / 82%) !important;
+      background: transparent !important;
+
+      &:hover {
+        color: #fff !important;
+        background: rgb(255 255 255 / 8%) !important;
+      }
+    }
+
+    .el-menu-item.is-active {
+      color: var(--theme-color) !important;
+      background: color-mix(in srgb, var(--theme-color) 14%, transparent) !important;
+      border-color: transparent !important;
+      border-radius: 0;
+      box-shadow: none;
+
+      &::before {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 3px;
+        content: "";
+        background: var(--theme-color);
+        border-radius: 0 3px 3px 0;
+      }
+
+      .menu-icon {
+        color: var(--theme-color) !important;
+        background: color-mix(in srgb, var(--theme-color) 16%, transparent);
+        box-shadow: none;
+      }
+
+      span,
+      .menu-icon .art-svg-icon,
+      .menu-name {
+        color: var(--theme-color) !important;
+      }
+    }
+  }
+}
+
+.layout-sidebar {
+  .menu-left-open {
+    width: v-bind(menuopenwidth);
+  }
+
+  .menu-left-close {
+    width: v-bind(menuclosewidth);
+
+    .header {
+      padding-right: 0;
+      padding-left: 0;
+    }
+
+    .header-brand {
+      width: 36px;
+    }
+
+    .header-brand__text {
+      width: 0;
+      opacity: 0;
+    }
+  }
+
+  /* 展开的宽度 */
+  .el-menu:not(.el-menu--collapse) {
+    width: v-bind(menuopenwidth);
+  }
+
+  /* 折叠后宽度 */
+  .el-menu--collapse {
+    width: v-bind(menuclosewidth);
+  }
+}
+
+/* 中等视口（800-1200px）下进一步收紧 sidebar 宽度，释放主区域空间 */
+@media (width >= 801px) and (width <= 1200px) {
+  .layout-sidebar .el-menu:not(.el-menu--collapse) {
+    width: 200px !important;
+  }
+}
+</style>

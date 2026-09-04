@@ -1,0 +1,138 @@
+<!-- 账号密码登录表单 -->
+<template>
+  <div>
+    <ElForm
+      ref="formRef"
+      :model="loginForm"
+      :rules="rules"
+      :key="formKey"
+      class="login-page-form"
+      :validate-on-rule-change="false"
+      @keyup.enter="$emit('submit')"
+    >
+      <ElFormItem prop="username">
+        <ElInput
+          class="custom-height"
+          v-model.trim="loginForm.username"
+          clearable
+          :placeholder="$t('login.placeholder.username')"
+        >
+          <template #prefix>
+            <ElIcon><User /></ElIcon>
+          </template>
+        </ElInput>
+      </ElFormItem>
+
+      <ElTooltip :visible="isCapsLock" :content="$t('login.capsLock')" placement="right">
+        <ElFormItem prop="password">
+          <ElInput
+            class="custom-height"
+            v-model.trim="loginForm.password"
+            type="password"
+            autocomplete="off"
+            show-password
+            clearable
+            :placeholder="$t('login.placeholder.password')"
+            @keyup="onPasswordKeyup"
+          >
+            <template #prefix>
+              <ElIcon><Lock /></ElIcon>
+            </template>
+          </ElInput>
+        </ElFormItem>
+      </ElTooltip>
+
+      <ElFormItem v-if="captchaEnabled" prop="captcha">
+        <div class="captcha-row flex w-full items-center gap-3">
+          <ElInput
+            v-model.trim="loginForm.captcha"
+            class="custom-height min-w-0 flex-1"
+            autocomplete="off"
+            maxlength="8"
+            placeholder="请输入验证码"
+          />
+          <button
+            type="button"
+            class="captcha-image shrink-0 overflow-hidden rounded border border-(--el-border-color)"
+            :disabled="captchaLoading"
+            aria-label="刷新验证码"
+            @click="emit('refresh-captcha')"
+          >
+            <img v-if="captchaImage" :src="captchaImage" alt="验证码" />
+            <span v-else>刷新</span>
+          </button>
+        </div>
+      </ElFormItem>
+
+      <div class="login-form-tail flex flex-col gap-[1.1rem]">
+        <ElCheckbox v-model="loginForm.remember" class="login-remember self-start text-sm">
+          {{ $t("login.rememberPwd") }}
+        </ElCheckbox>
+        <div>
+          <ElButton
+            class="login-submit-btn h-11 w-full text-base font-medium"
+            type="primary"
+            :loading="loading"
+            v-ripple
+            @click="$emit('submit')"
+          >
+            {{ $t("login.btnText") }}
+          </ElButton>
+        </div>
+      </div>
+    </ElForm>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { Lock, User } from "@element-plus/icons-vue";
+import type { LoginFormData } from "@/api/module_system/auth";
+import type { FormRules } from "element-plus";
+
+const loginForm = defineModel<LoginFormData>("loginForm", { required: true });
+
+defineOptions({ name: "FaLoginAccountForm" });
+
+interface Props {
+  rules: FormRules;
+  formKey: number | string;
+  loading: boolean;
+  captchaEnabled?: boolean;
+  captchaImage?: string;
+  captchaLoading?: boolean;
+}
+
+withDefaults(defineProps<Props>(), {
+  captchaEnabled: false,
+  captchaImage: "",
+  captchaLoading: false,
+});
+
+interface Emits {
+  submit: [];
+  "refresh-captcha": [];
+}
+
+const emit = defineEmits<Emits>();
+
+const formRef = ref();
+const isCapsLock = ref(false);
+
+function onPasswordKeyup(event: KeyboardEvent) {
+  if (event instanceof KeyboardEvent) {
+    isCapsLock.value = event.getModifierState("CapsLock");
+    if (event.key === "Enter") {
+      emit("submit");
+    }
+  }
+}
+
+defineExpose({
+  validate: () => formRef.value?.validate?.(),
+  clearValidate: () => formRef.value?.clearValidate?.(),
+});
+</script>
+
+<style scoped lang="scss">
+@use "../fa-login";
+</style>

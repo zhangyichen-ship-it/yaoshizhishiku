@@ -1,0 +1,761 @@
+// 优化 Element Plus 组件库默认样式
+// 颜色 hex 全部从 _fa-tokens.scss 引入，保证整个项目只有一处定义业务色。
+// 运行时 setElementThemeColor() 仍会覆盖 --el-color-primary（用户可切换主题色）。
+
+@use "../core/fa-tokens" as *;
+
+:root {
+  // Quiet Operations — map El Plus structure tokens to semantic tokens
+  --el-border-radius-base: var(--fa-radius-control);
+  --el-component-custom-height: var(--fa-control-height);
+}
+
+:root {
+  // 系统主色 fallback（setElementThemeColor 运行时动态覆盖）
+  --el-color-primary: #{$fa-primary};
+  // 固定业务色板（EP 组件内部 var(--el-color-*) 消费）
+  --el-color-success: var(--fa-color-success);
+  --el-color-warning: var(--fa-color-warning);
+  --el-color-danger: var(--fa-color-danger);
+  --el-color-error: var(--fa-color-danger);
+  --el-color-info: var(--fa-color-info);
+
+  // 系统主色
+  --main-color: var(--el-color-primary);
+  --el-color-white: var(--fa-color-surface) !important;
+  --el-color-black: var(--fa-color-text) !important;
+  --el-bg-color-page: var(--fa-color-canvas) !important;
+  --el-bg-color: var(--fa-color-surface) !important;
+  --el-bg-color-overlay: var(--fa-color-surface-raised) !important;
+  --el-border-color: var(--fa-color-border) !important;
+  --el-border-color-light: var(--fa-color-border) !important;
+  --el-border-color-lighter: color-mix(in srgb, var(--fa-color-border) 70%, transparent) !important;
+  --el-fill-color: color-mix(in srgb, var(--fa-color-canvas) 72%, var(--fa-color-surface)) !important;
+  --el-fill-color-light: color-mix(in srgb, var(--fa-color-canvas) 48%, var(--fa-color-surface)) !important;
+  --el-fill-color-lighter: color-mix(in srgb, var(--fa-color-canvas) 28%, var(--fa-color-surface)) !important;
+  --el-fill-color-blank: var(--fa-color-surface) !important;
+  --el-text-color-primary: var(--fa-color-text) !important;
+  --el-text-color-regular: var(--fa-color-text) !important;
+  --el-text-color-secondary: var(--fa-color-text-muted) !important;
+  // 按钮样式偏好
+  --el-button-hover-bg-color: color-mix(in srgb, var(--theme-color) 9%, var(--fa-color-surface)) !important;
+  --el-button-hover-border-color: var(--el-color-primary) !important;
+  --el-button-border-color: var(--el-color-primary) !important;
+  --el-button-text-color: var(--el-color-primary) !important;
+  // 按钮粗度
+  --el-font-weight-primary: 400 !important;
+  --el-component-custom-height: var(--fa-control-height) !important;
+  --el-component-size: var(--el-component-custom-height) !important;
+
+  // 边框、按钮圆角...
+  --el-border-radius-base: var(--fa-radius-control) !important;
+  --el-border-radius-small: var(--fa-radius-control) !important;
+  --el-border-radius-round: 999px !important;
+  --el-messagebox-border-radius: var(--fa-radius-overlay) !important;
+  --el-popover-border-radius: var(--fa-radius-overlay) !important;
+
+  .region .el-radio-button__original-radio:checked + .el-radio-button__inner {
+    color: var(--theme-color);
+  }
+}
+
+// 优化 el-form-item 标签高度
+.el-form-item__label {
+  height: var(--el-component-custom-height) !important;
+  line-height: var(--el-component-custom-height) !important;
+}
+
+// 日期选择器
+.el-date-range-picker {
+  --el-datepicker-inrange-bg-color: var(--fa-gray-200) !important;
+}
+
+// el-card 背景色跟系统背景色保持一致
+html.dark .el-card {
+  --el-card-bg-color: var(--fa-color-surface) !important;
+}
+
+// 修改 el-pagination 大小
+.el-pagination--default {
+  --el-pagination-button-width: 32px !important;
+  --el-pagination-button-height: var(--el-pagination-button-width) !important;
+
+  @media (width <= 1180px) {
+    --el-pagination-button-width: 28px !important;
+  }
+
+  .el-select--default .el-select__wrapper {
+    min-height: var(--el-pagination-button-width) !important;
+  }
+
+  .el-pagination__jump .el-input {
+    height: var(--el-pagination-button-width) !important;
+  }
+}
+
+.el-pager li {
+  padding: 0 10px !important;
+  // border: 1px solid red !important;
+}
+
+// 优化菜单折叠展开动画（提升动画流畅度）
+.el-menu.el-menu--inline {
+  transition: max-height 0.26s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+// 优化菜单 item hover 动画（提升鼠标跟手感）
+.el-sub-menu__title,
+.el-menu-item {
+  transition: background-color 0s !important;
+}
+
+// -------------------------------- 修改 el-size=default 组件默认高度 start --------------------------------
+// 修改 el-button 高度
+.el-button--default {
+  height: var(--el-component-custom-height) !important;
+}
+
+// circle 按钮宽度优化
+.el-button--default.is-circle {
+  width: var(--el-component-custom-height) !important;
+}
+
+// 修改 el-select 高度
+.el-select--default {
+  .el-select__wrapper {
+    min-height: var(--el-component-custom-height) !important;
+  }
+}
+
+// 修改 el-checkbox-button 高度
+.el-checkbox-button--default .el-checkbox-button__inner,
+// 修改 el-radio-button 高度
+.el-radio-button--default .el-radio-button__inner {
+  padding: 10px 15px !important;
+}
+// -------------------------------- 修改 el-size=default 组件默认高度 end --------------------------------
+
+.el-pagination.is-background .btn-next,
+.el-pagination.is-background .btn-prev,
+.el-pagination.is-background .el-pager li {
+  border-radius: 6px;
+}
+
+.el-popover {
+  min-width: 80px;
+  border-radius: var(--el-border-radius-small) !important;
+}
+
+.el-dialog {
+  overflow: hidden;
+  border-radius: var(--fa-radius-overlay) !important;
+}
+
+.el-dialog__header {
+  .el-dialog__title {
+    font-size: 16px;
+  }
+}
+
+.el-dialog__body {
+  position: relative; // 为了兼容 el-pagination 样式，需要设置 relative，不然会影响 el-pagination 的样式，比如 el-pagination__jump--small 会被影响，导致 el-pagination__jump--small 按钮无法点击，详见 URL_ADDRESS.com/element-plus/element-plus/issues/5684#issuecomment-1176299275;
+  padding: 12px 0 !important;
+}
+
+.el-dialog.el-dialog-border {
+  .el-dialog__body {
+    // 上边框
+    &::before,
+    // 下边框
+    &::after {
+      position: absolute;
+      left: -16px;
+      width: calc(100% + 32px);
+      height: 1px;
+      content: "";
+      background-color: var(--fa-color-border);
+    }
+
+    &::before {
+      top: 0;
+    }
+
+    &::after {
+      bottom: 0;
+    }
+  }
+}
+
+.el-drawer__header {
+  padding: 12px 8px !important;
+  margin-bottom: 2px !important;
+}
+
+.el-drawer__body {
+  position: relative; // 为了兼容 el-pagination 样式，需要设置 relative，不然会影响 el-pagination 的样式，比如 el-pagination__jump--small 会被影响，导致 el-pagination__jump--small 按钮无法点击，详见 URL_ADDRESS.com/element-plus/element-plus/issues/5684#issuecomment-1176299275;
+  padding: 0 8px !important;
+}
+
+// el-message 样式优化
+.el-message {
+  background-color: var(--fa-color-surface-raised) !important;
+  border: 1px solid var(--fa-color-border) !important;
+  box-shadow: var(--fa-overlay-shadow) !important;
+
+  p {
+    font-size: 13px;
+  }
+}
+
+// 修改 el-dropdown 样式
+.el-dropdown-menu {
+  padding: 6px !important;
+  border: 1px solid var(--fa-color-border) !important;
+  border-radius: var(--fa-radius-overlay) !important;
+
+  .el-dropdown-menu__item {
+    padding: 6px 16px !important;
+    border-radius: var(--fa-radius-control) !important;
+
+    &:hover:not(.is-disabled) {
+      color: var(--fa-color-text) !important;
+      background-color: var(--fa-el-active-color) !important;
+    }
+
+    &:focus:not(.is-disabled) {
+      color: var(--fa-color-text) !important;
+      background-color: var(--fa-hover-color) !important;
+    }
+  }
+}
+
+// 隐藏 select、dropdown 的三角
+.el-select__popper,
+.el-dropdown__popper {
+  margin-top: -6px !important;
+
+  .el-popper__arrow {
+    display: none;
+  }
+}
+
+.el-dropdown-selfdefine:focus {
+  outline: none !important;
+}
+
+// 处理移动端组件兼容性
+@media screen and (width <= 640px) {
+  .el-message-box,
+  .el-dialog {
+    width: calc(100% - 24px) !important;
+  }
+
+  .el-date-picker.has-sidebar.has-time {
+    left: 12px !important;
+    width: calc(100% - 24px);
+  }
+
+  .el-picker-panel *[slot="sidebar"],
+  .el-picker-panel__sidebar {
+    display: none;
+  }
+
+  .el-picker-panel *[slot="sidebar"] + .el-picker-panel__body,
+  .el-picker-panel__sidebar + .el-picker-panel__body {
+    margin-left: 0;
+  }
+}
+
+// 修改el-button样式
+.el-button {
+  &.el-button--text {
+    padding: 0 !important;
+    background-color: transparent !important;
+
+    span {
+      margin-left: 0 !important;
+    }
+  }
+}
+
+// 修改el-tag样式
+.el-tag {
+  font-weight: 500;
+  transition: all 0s !important;
+
+  &.el-tag--default {
+    height: 26px !important;
+  }
+}
+
+.el-checkbox-group {
+  &.el-table-filter__checkbox-group label.el-checkbox {
+    height: 17px !important;
+
+    .el-checkbox__label {
+      font-weight: 400 !important;
+    }
+  }
+}
+
+.el-radio--default {
+  // 优化单选按钮大小
+  .el-radio__input {
+    .el-radio__inner {
+      width: 16px;
+      height: 16px;
+
+      &::after {
+        width: 6px;
+        height: 6px;
+      }
+    }
+  }
+}
+
+.el-checkbox {
+  .el-checkbox__inner {
+    border-radius: 2px !important;
+  }
+}
+
+// 优化复选框样式
+.el-checkbox--default {
+  .el-checkbox__inner {
+    width: 16px !important;
+    height: 16px !important;
+    border-radius: 4px !important;
+
+    &::before {
+      top: 5px !important;
+      height: 4px !important;
+      content: "";
+      background-color: #fff !important;
+      transform: scale(0.6) !important;
+    }
+  }
+
+  .is-checked {
+    .el-checkbox__inner {
+      &::after {
+        width: 3px;
+        height: 8px;
+        margin: auto;
+        border: 2px solid var(--el-checkbox-checked-icon-color);
+        border-top: 0;
+        border-left: 0;
+        transform: translate(-45%, -60%) rotate(45deg) scale(0.86) !important;
+        transform-origin: center;
+      }
+    }
+  }
+}
+
+.el-notification .el-notification__icon {
+  font-size: 22px !important;
+}
+
+// 修改 el-message-box 样式
+.el-message-box__headerbtn .el-message-box__close,
+.el-dialog__headerbtn .el-dialog__close {
+  top: 7px;
+  right: 7px;
+  width: 30px;
+  height: 30px;
+  border-radius: 5px;
+  transition: all 0.3s;
+
+  &:hover {
+    color: var(--fa-gray-900) !important;
+    background-color: var(--fa-hover-color) !important;
+  }
+}
+
+.el-message-box {
+  padding: 25px 20px !important;
+}
+
+.el-message-box__title {
+  font-weight: 500 !important;
+}
+
+.el-table__column-filter-trigger i {
+  margin: -3px 0 0 2px;
+  color: var(--theme-color) !important;
+}
+
+// 去除 el-dropdown 鼠标放上去出现的边框
+.el-tooltip__trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--fa-focus-ring);
+}
+
+// ipad 表单右侧按钮优化
+@media screen and (width <= 1180px) {
+  .el-table-fixed-column--right {
+    padding-right: 0 !important;
+  }
+}
+
+.login-out-dialog {
+  padding: 30px 20px !important;
+  border-radius: var(--fa-radius-overlay) !important;
+}
+
+// 修改 dialog 动画
+.dialog-fade-enter-active {
+  .el-dialog:not(.is-draggable) {
+    animation: dialog-open var(--fa-motion-page) cubic-bezier(0.32, 0.14, 0.15, 0.86);
+
+    // 修复 el-dialog 动画后宽度不自适应问题
+    .el-select__selected-item {
+      display: inline-block;
+    }
+  }
+}
+
+.dialog-fade-leave-active {
+  animation: fade-out var(--fa-motion-page) linear;
+
+  .el-dialog:not(.is-draggable) {
+    animation: dialog-close var(--fa-motion-page) ease;
+  }
+}
+
+@keyframes dialog-open {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dialog-close {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+// 遮罩层动画
+@keyframes fade-out {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+// 修改 el-select 样式
+.el-select__popper:not(.el-tree-select__popper) {
+  .el-select-dropdown__list {
+    padding: 5px !important;
+
+    .el-select-dropdown__item {
+      height: 34px !important;
+      line-height: 34px !important;
+      border-radius: 6px !important;
+
+      &.is-selected {
+        margin-bottom: 4px !important;
+        font-weight: 400 !important;
+        color: var(--fa-gray-900) !important;
+        background-color: var(--fa-el-active-color) !important;
+      }
+
+      &:hover {
+        background-color: var(--fa-hover-color) !important;
+      }
+    }
+
+    .el-select-dropdown__item:hover ~ .is-selected,
+    .el-select-dropdown__item.is-selected:has(~ .el-select-dropdown__item:hover) {
+      background-color: transparent !important;
+    }
+  }
+}
+
+// 修改 el-tree-select 样式
+.el-tree-select__popper {
+  .el-select-dropdown__list {
+    padding: 5px !important;
+
+    .el-tree-node {
+      .el-tree-node__content {
+        height: 36px !important;
+        border-radius: 6px !important;
+
+        &:hover {
+          background-color: var(--fa-gray-200) !important;
+        }
+      }
+    }
+  }
+}
+
+// 实现水波纹在文字下面效果
+.el-button > span {
+  position: relative;
+  z-index: 10;
+}
+
+// 优化颜色选择器圆角
+.el-color-picker__color {
+  border-radius: 2px !important;
+}
+
+// 优化日期时间选择器底部圆角
+.el-picker-panel {
+  .el-picker-panel__footer {
+    border-radius: 0 0 var(--el-border-radius-base) var(--el-border-radius-base);
+  }
+}
+
+// 优化树型菜单样式
+.el-tree-node__content {
+  padding: 1px 0;
+  margin-bottom: 4px;
+  border-radius: 4px;
+
+  &:hover {
+    background-color: var(--fa-hover-color) !important;
+  }
+}
+
+.dark {
+  .el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content {
+    background-color: var(--fa-gray-300) !important;
+  }
+}
+
+// 隐藏折叠菜单弹窗 hover 出现的边框
+.menu-left-popper:focus-within,
+.horizontal-menu-popper:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+// 数字输入组件右侧按钮高度跟随自定义组件高度
+.el-input-number--default.is-controls-right {
+  .el-input-number__decrease,
+  .el-input-number__increase {
+    height: calc((var(--el-component-size) / 2)) !important;
+  }
+}
+
+/* 21st.dev Lite skin */
+.dark {
+  --el-bg-color-page: var(--fa-color-canvas) !important;
+  --el-bg-color: var(--fa-color-surface) !important;
+  --el-bg-color-overlay: var(--fa-color-surface-raised) !important;
+  --el-border-color: var(--fa-color-border) !important;
+  --el-border-color-light: var(--fa-color-border) !important;
+  --el-border-color-lighter: color-mix(in srgb, var(--fa-color-border) 70%, transparent) !important;
+  --el-fill-color: color-mix(in srgb, var(--fa-color-surface-raised) 68%, var(--fa-color-surface)) !important;
+  --el-fill-color-light: color-mix(in srgb, var(--fa-color-surface-raised) 48%, var(--fa-color-surface)) !important;
+  --el-fill-color-lighter: color-mix(in srgb, var(--fa-color-surface-raised) 28%, var(--fa-color-surface)) !important;
+  --el-fill-color-blank: var(--fa-color-surface) !important;
+  --el-text-color-primary: var(--fa-color-text) !important;
+  --el-text-color-regular: var(--fa-color-text) !important;
+  --el-text-color-secondary: var(--fa-color-text-muted) !important;
+}
+
+.el-button {
+  border-radius: var(--fa-radius-control) !important;
+  box-shadow: none !important;
+  transition:
+    background-color var(--fa-motion-control) ease,
+    border-color var(--fa-motion-control) ease,
+    color var(--fa-motion-control) ease;
+
+  &:focus-visible {
+    box-shadow: var(--fa-focus-ring) !important;
+  }
+}
+
+.el-button--primary {
+  background-image: linear-gradient(180deg, color-mix(in srgb, #fff 14%, transparent), transparent);
+  border-color: var(--theme-color) !important;
+  box-shadow: none !important;
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  background-color: var(--fa-color-surface) !important;
+  border: 1px solid var(--fa-color-border) !important;
+  border-radius: var(--fa-radius-control) !important;
+  box-shadow: none !important;
+  transition:
+    background-color var(--fa-motion-control) ease,
+    border-color var(--fa-motion-control) ease,
+    box-shadow var(--fa-motion-control) ease;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--theme-color) 28%, var(--fa-color-border)) !important;
+  }
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  border-color: color-mix(in srgb, var(--theme-color) 72%, var(--fa-color-border)) !important;
+  box-shadow: var(--fa-focus-ring) !important;
+}
+
+.el-card {
+  background: var(--fa-color-surface) !important;
+  border: 1px solid var(--fa-color-border) !important;
+  border-radius: var(--fa-radius-panel) !important;
+  box-shadow: none !important;
+  transition:
+    border-color var(--fa-motion-control) ease,
+    background-color var(--fa-motion-control) ease;
+}
+
+.el-card:hover {
+  border-color: color-mix(in srgb, var(--theme-color) 24%, var(--fa-color-border)) !important;
+}
+
+.el-card__header {
+  padding: 14px 16px !important;
+  border-bottom-color: var(--fa-color-border) !important;
+}
+
+.el-card__body {
+  padding: 16px !important;
+}
+
+.el-tabs {
+  padding: 4px;
+  margin: 14px 0;
+  background: var(--fa-color-surface-raised);
+  border: 1px solid var(--fa-color-border);
+  border-radius: var(--fa-radius-panel);
+  box-shadow: none;
+}
+
+.el-tabs__header {
+  margin: 0 !important;
+}
+
+.el-tabs__nav-wrap::after {
+  display: none !important;
+}
+
+.el-tabs__nav {
+  gap: 4px;
+}
+
+.el-tabs__active-bar {
+  display: none !important;
+}
+
+.el-tabs__item {
+  height: 34px !important;
+  padding: 0 14px !important;
+  margin: 0 !important;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-text-color-secondary) !important;
+  border: 1px solid transparent;
+  border-radius: var(--fa-radius-control);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:hover {
+    color: var(--el-text-color-primary) !important;
+    background: color-mix(in srgb, var(--theme-color) 6%, var(--fa-color-surface));
+  }
+
+  &.is-active {
+    color: var(--theme-color) !important;
+    background: var(--fa-color-surface);
+    border-color: color-mix(in srgb, var(--theme-color) 24%, var(--fa-color-border));
+    box-shadow: none;
+  }
+}
+
+.el-tabs__content {
+  padding-top: 0;
+}
+
+.el-pagination.is-background .btn-next,
+.el-pagination.is-background .btn-prev,
+.el-pagination.is-background .el-pager li {
+  background: var(--fa-color-surface) !important;
+  border: 1px solid var(--fa-color-border) !important;
+  border-radius: var(--fa-radius-control) !important;
+  box-shadow: none !important;
+}
+
+.el-pagination.is-background .el-pager li.is-active {
+  background: var(--theme-color) !important;
+  border-color: var(--theme-color) !important;
+}
+
+.el-popover,
+.el-popper,
+.el-dropdown-menu {
+  background: var(--fa-color-surface-raised) !important;
+  border: 1px solid var(--fa-color-border) !important;
+  border-radius: var(--fa-radius-overlay) !important;
+  box-shadow: var(--fa-overlay-shadow) !important;
+}
+
+.el-dialog,
+.el-message-box,
+.login-out-dialog {
+  background: var(--fa-color-surface-raised) !important;
+  border: 1px solid var(--fa-color-border) !important;
+  border-radius: var(--fa-radius-overlay) !important;
+  box-shadow: var(--fa-overlay-shadow) !important;
+}
+
+.el-message {
+  background-color: var(--fa-color-surface-raised) !important;
+  border: 1px solid var(--fa-color-border) !important;
+  border-radius: var(--fa-radius-overlay) !important;
+  box-shadow: var(--fa-overlay-shadow) !important;
+}
+
+.el-table {
+  --el-table-border-color: var(--fa-color-border) !important;
+  --el-table-current-row-bg-color: color-mix(in srgb, var(--theme-color) 8%, var(--fa-color-surface)) !important;
+  --el-table-header-bg-color: var(--fa-color-surface-raised) !important;
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--theme-color) 6%, var(--fa-color-surface)) !important;
+
+  overflow: hidden;
+  border: 1px solid var(--fa-color-border);
+  border-radius: var(--fa-radius-panel);
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+  color: var(--fa-color-text);
+  background: var(--fa-color-surface-raised) !important;
+}
+
+.el-table .el-table__cell {
+  border-bottom-color: var(--fa-color-border) !important;
+}
+
+.el-table--border::after,
+.el-table--border::before,
+.el-table__inner-wrapper::before {
+  background-color: var(--fa-color-border) !important;
+}
