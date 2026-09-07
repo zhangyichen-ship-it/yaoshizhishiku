@@ -40,7 +40,7 @@ def test_control_plane_config_allows_local_endpoint_and_rejects_url_credentials(
 
 
 @pytest.mark.asyncio
-async def test_bind_control_plane_uses_existing_cloud_admin_and_encrypts_credential(tmp_path, monkeypatch) -> None:
+async def test_bind_control_plane_creates_cloud_owner_and_encrypts_credential(tmp_path, monkeypatch) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'control-plane.db'}")
     async with engine.begin() as connection:
         await connection.run_sync(UserModel.__table__.create)
@@ -66,28 +66,18 @@ async def test_bind_control_plane_uses_existing_cloud_admin_and_encrypts_credent
             "http://127.0.0.1:9000/api/v1/platform/client",
         )
 
-        async def fake_list_members(_client):
-            return [
-                {
-                    "user_id": 101,
-                    "username": "admin",
-                    "name": "Administrator",
-                    "role": "owner",
-                }
-            ]
+        created_call = {}
 
-        updated_call = {}
+        async def fake_create_member(_client, payload, idempotency_key):
+            created_call.update(payload=payload, idempotency_key=idempotency_key)
+            return {
+                "user_id": 101,
+                "username": "admin",
+                "name": "Administrator",
+                "role": "owner",
+            }
 
-        async def fail_create_member(_client, _payload, _idempotency_key):
-            raise AssertionError("initial binding must not create the cloud administrator")
-
-        async def fake_update_member(_client, user_id, payload):
-            updated_call.update(user_id=user_id, payload=payload)
-            return {"user_id": user_id, "username": "admin", "name": "Administrator", "role": "owner"}
-
-        monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.list_members", fake_list_members)
-        monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.create_member", fail_create_member)
-        monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.update_member", fake_update_member)
+        monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.create_member", fake_create_member)
         data = CloudControlPlaneBindSchema(
             admin_username="admin",
             admin_password="admin123",
@@ -96,15 +86,18 @@ async def test_bind_control_plane_uses_existing_cloud_admin_and_encrypts_credent
         )
 
         assert await control_plane_service.bind_control_plane(db, data) == {"configured": True}
-        assert updated_call == {
-            "user_id": 101,
+        assert created_call == {
             "payload": {
+                "username": "admin",
+                "password": "admin123",
                 "name": "Administrator",
+                "email": "admin@example.com",
                 "status": 0,
                 "desktop_enabled": True,
                 "knowledge_enabled": True,
                 "model_enabled": True,
             },
+            "idempotency_key": "kb-bind-admin:7:admin",
         }
         await db.commit()
 
@@ -119,12 +112,16 @@ async def test_bind_control_plane_uses_existing_cloud_admin_and_encrypts_credent
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("cloud_role", "update_allowed"), [("owner", True), ("member", False)])
-async def test_bind_control_plane_validates_existing_cloud_admin_role(
+@pytest.mark.parametrize(
+    ("cloud_role", "login_valid", "rebind_allowed"),
+    [("owner", True, True), ("member", True, False), ("owner", False, False)],
+)
+async def test_bind_control_plane_validates_rebind_owner_and_password(
     tmp_path,
     monkeypatch,
     cloud_role: str,
-    update_allowed: bool,
+    login_valid: bool,
+    rebind_allowed: bool,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'control-plane-update.db'}")
     async with engine.begin() as connection:
@@ -133,16 +130,6 @@ async def test_bind_control_plane_validates_existing_cloud_admin_role(
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as db:
-        db.add(
-            UserModel(
-                username="admin",
-                password=PwdUtil.hash_password("admin123"),
-                name="Administrator",
-                email="admin@example.com",
-                is_superuser=True,
-                status=0,
-            )
-        )
         db.add(
             AiControlPlaneConfigModel(
                 api_url="http://127.0.0.1:9000/api/v1/platform/client",
@@ -168,53 +155,49 @@ async def test_bind_control_plane_validates_existing_cloud_admin_role(
                 }
             ]
 
-        updated_call = {}
+        login_call = {}
 
-        async def fake_update_member(_client, user_id, payload):
-            updated_call.update(user_id=user_id, payload=payload)
+        async def fake_login_member(_client, identity, password):
+            login_call.update(identity=identity, password=password)
+            if not login_valid:
+                raise CustomException(msg="账号或密码错误", status_code=401)
             return {
-                "user_id": user_id,
-                "username": "admin",
-                "name": "Administrator",
-                "email": "admin@example.com",
-                "role": "owner",
-                "status": 0,
-                "desktop_enabled": True,
-                "knowledge_enabled": True,
-                "model_enabled": True,
+                "user": {"user_id": 101, "username": "admin", "role": "owner"},
+                "identity_token": "identity-token",
+                "refresh_token": "refresh-token",
             }
 
         monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.list_members", fake_list_members)
-        monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.update_member", fake_update_member)
+        monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.login_member", fake_login_member)
 
         data = CloudControlPlaneBindSchema(
             admin_username="admin",
-            admin_password="admin123",
+            admin_password="cloud-owner-password",
             instance_id=7,
             service_credential="new-secret",
         )
 
-        if update_allowed:
+        if rebind_allowed:
             assert await control_plane_service.bind_control_plane(db, data) == {"configured": True}
-            assert updated_call == {
-                "user_id": 101,
-                "payload": {
-                    "name": "Administrator",
-                    "status": 0,
-                    "desktop_enabled": True,
-                    "knowledge_enabled": True,
-                    "model_enabled": True,
-                },
+            assert login_call == {
+                "identity": "admin",
+                "password": "cloud-owner-password",
             }
-            await db.commit()
 
             record = await db.scalar(select(AiControlPlaneConfigModel))
             assert record is not None
             assert decrypt_secret(record.encrypted_service_credential) == data.service_credential
         else:
-            with pytest.raises(CustomException, match="企业超管"):
+            expected_message = "账号或密码错误" if not login_valid else "企业超管"
+            with pytest.raises(CustomException, match=expected_message):
                 await control_plane_service.bind_control_plane(db, data)
-            assert updated_call == {}
+            if cloud_role == "owner":
+                assert login_call == {
+                    "identity": "admin",
+                    "password": "cloud-owner-password",
+                }
+            else:
+                assert login_call == {}
             record = await db.scalar(select(AiControlPlaneConfigModel))
             assert record is not None
             assert decrypt_secret(record.encrypted_service_credential) == "old-secret"
@@ -223,7 +206,7 @@ async def test_bind_control_plane_validates_existing_cloud_admin_role(
 
 
 @pytest.mark.asyncio
-async def test_bind_control_plane_rejects_missing_cloud_admin(tmp_path, monkeypatch) -> None:
+async def test_bind_control_plane_rejects_non_owner_created_account(tmp_path, monkeypatch) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'control-plane-missing.db'}")
     async with engine.begin() as connection:
         await connection.run_sync(UserModel.__table__.create)
@@ -249,14 +232,10 @@ async def test_bind_control_plane_rejects_missing_cloud_admin(tmp_path, monkeypa
             "http://127.0.0.1:9000/api/v1/platform/client",
         )
 
-        async def fake_list_members(_client):
-            return []
+        async def fake_create_member(_client, _payload, _idempotency_key):
+            return {"user_id": 101, "username": "admin", "role": "member"}
 
-        async def fail_create_member(_client, _payload, _idempotency_key):
-            raise CustomException(msg="云端员工已存在或幂等键冲突", status_code=409)
-
-        monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.list_members", fake_list_members)
-        monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.create_member", fail_create_member)
+        monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.create_member", fake_create_member)
 
         data = CloudControlPlaneBindSchema(
             admin_username="admin",
@@ -265,7 +244,7 @@ async def test_bind_control_plane_rejects_missing_cloud_admin(tmp_path, monkeypa
             service_credential="instance-secret",
         )
 
-        with pytest.raises(CustomException, match="云面板中未找到对应的企业超管") as exc_info:
+        with pytest.raises(CustomException, match="企业超管") as exc_info:
             await control_plane_service.bind_control_plane(db, data)
         assert exc_info.value.status_code == 403
         assert await db.scalar(select(func.count(AiControlPlaneConfigModel.id))) == 0

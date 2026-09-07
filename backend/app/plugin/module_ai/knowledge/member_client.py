@@ -63,7 +63,11 @@ def _retry_allowed(method: str, resource: str, path: str, idempotency_key: str |
         return False
     if normalized_method in {"GET", "HEAD", "OPTIONS", "PUT", "PATCH"}:
         return True
-    return normalized_method == "POST" and (bool(idempotency_key) or (resource == "identity" and path == "/introspect"))
+    return normalized_method == "POST" and (
+        bool(idempotency_key)
+        or (resource == "identity" and path == "/introspect")
+        or (resource == "app-data" and path == "/introspect")
+    )
 
 
 class CloudMemberClient:
@@ -139,10 +143,14 @@ class CloudMemberClient:
         if response.status_code == 401:
             if resource == "identity" and path == "/login":
                 raise CustomException(msg="账号或密码错误", status_code=401)
+            if resource == "app-data" and path == "/introspect":
+                raise CustomException(msg="云端 App Data 凭证无效或已过期", status_code=401)
             raise CustomException(msg="云端身份凭证无效或已过期" if resource == "identity" else "云端成员服务凭证无效", status_code=401 if resource == "identity" else 503)
         if response.status_code == 400 and resource == "identity" and path == "/password":
             raise CustomException(msg="原密码输入错误", status_code=400)
         if response.status_code == 403:
+            if resource == "app-data" and path == "/introspect":
+                raise CustomException(msg="当前账号无权访问该 App 数据", status_code=403)
             raise CustomException(msg="当前账号未开通知识库或已被停用" if resource == "identity" else "云端成员服务拒绝当前实例", status_code=403 if resource == "identity" else 503)
         if response.status_code == 404:
             raise CustomException(msg="云端成员接口不存在或实例配置错误", status_code=502)
@@ -271,6 +279,22 @@ class CloudMemberClient:
         )
         if not isinstance(result, dict):
             raise CustomException(msg="云端身份服务返回格式错误", status_code=502)
+        return result
+
+    async def introspect_app_data_token(self, access_token: str) -> dict[str, Any]:
+        result = await self._request(
+            "POST",
+            resource="app-data",
+            path="/introspect",
+            payload={"access_token": access_token},
+        )
+        if not isinstance(result, dict):
+            raise CustomException(msg="云端 App Data 身份服务返回格式错误", status_code=502)
+        required = ("app_id", "subject_id", "space_id", "session_id", "scopes")
+        if any(not isinstance(result.get(key), (str, list)) for key in required):
+            raise CustomException(msg="云端 App Data 身份服务返回格式错误", status_code=502)
+        if not isinstance(result.get("scopes"), list):
+            raise CustomException(msg="云端 App Data 权限声明格式错误", status_code=502)
         return result
 
     async def change_password(

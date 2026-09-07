@@ -145,6 +145,63 @@ async def test_cloud_embedding_config_uses_instance_endpoint_without_provider_ke
 
 
 @pytest.mark.asyncio
+async def test_cloud_member_client_creates_owner_with_binding_contract(monkeypatch) -> None:
+    from app.plugin.module_ai.knowledge import member_client as member_client_module
+
+    member_client_module._circuit_states.clear()
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        status_code = 200
+        is_success = True
+
+        def json(self):
+            return {
+                "success": True,
+                "data": {"user_id": 101, "username": "admin", "role": "owner"},
+            }
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def request(self, method, url, *, headers, json):
+            captured.update(method=method, url=url, headers=headers, json=json)
+            return FakeResponse()
+
+    monkeypatch.setattr(member_client_module.httpx, "AsyncClient", FakeClient)
+    config = member_client_module.CloudControlPlaneConfig(
+        api_url="https://cloud.example/api",
+        instance_id=7,
+        service_credential="instance-secret",
+        timeout=1.0,
+        source="test",
+    )
+
+    result = await member_client_module.CloudMemberClient(config=config).create_member(
+        {"username": "admin", "password": "initial-password"},
+        "kb-bind-admin:7:admin",
+    )
+
+    assert result["role"] == "owner"
+    assert captured == {
+        "method": "POST",
+        "url": "https://cloud.example/api/kb-instances/7/members",
+        "headers": {
+            "Authorization": "Bearer instance-secret",
+            "Idempotency-Key": "kb-bind-admin:7:admin",
+        },
+        "json": {"username": "admin", "password": "initial-password"},
+    }
+
+
+@pytest.mark.asyncio
 async def test_cloud_member_client_retries_transient_failures(monkeypatch) -> None:
     from app.plugin.module_ai.knowledge import member_client as member_client_module
 

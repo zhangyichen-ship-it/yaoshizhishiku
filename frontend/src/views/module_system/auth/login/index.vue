@@ -50,14 +50,14 @@
                         label-position="top"
                         @submit.prevent="handleCloudConfigSubmit"
                       >
-                        <ElFormItem :label="t('login.cloudConfig.adminUsername')" prop="admin_username">
+                        <ElFormItem :label="cloudConfigUsernameLabel" prop="admin_username">
                           <ElInput
                             v-model="cloudConfigForm.admin_username"
                             autocomplete="username"
                             :placeholder="t('login.placeholder.username')"
                           />
                         </ElFormItem>
-                        <ElFormItem :label="t('login.cloudConfig.adminPassword')" prop="admin_password">
+                        <ElFormItem :label="cloudConfigPasswordLabel" prop="admin_password">
                           <ElInput
                             v-model="cloudConfigForm.admin_password"
                             type="password"
@@ -75,7 +75,10 @@
                             :placeholder="t('login.cloudConfig.instanceIdPlaceholder')"
                           />
                         </ElFormItem>
-                        <ElFormItem :label="t('login.cloudConfig.serviceCredential')" prop="service_credential">
+                        <ElFormItem
+                          :label="t('login.cloudConfig.serviceCredential')"
+                          prop="service_credential"
+                        >
                           <ElInput
                             v-model="cloudConfigForm.service_credential"
                             type="password"
@@ -84,7 +87,12 @@
                             :placeholder="t('login.cloudConfig.serviceCredentialPlaceholder')"
                           />
                         </ElFormItem>
-                        <ElButton type="primary" native-type="submit" :loading="loading" class="w-full">
+                        <ElButton
+                          type="primary"
+                          native-type="submit"
+                          :loading="loading"
+                          class="w-full"
+                        >
                           {{ t("login.cloudConfig.submit") }}
                         </ElButton>
                       </ElForm>
@@ -196,8 +204,32 @@ const { panelAlign } = useLoginPanelAlign();
 const setupMode = ref(false);
 const cloudConfigAvailable = ref(false);
 const cloudConfigConfigured = ref(false);
-const panelTitle = computed(() => (setupMode.value ? t("login.cloudConfig.title") : t("login.title")));
-const panelSubTitle = computed(() => (setupMode.value ? t("login.cloudConfig.subTitle") : t("login.subTitle")));
+const panelTitle = computed(() => {
+  if (!setupMode.value) return t("login.title");
+  return t(
+    cloudConfigConfigured.value ? "login.cloudConfig.updateTitle" : "login.cloudConfig.title"
+  );
+});
+const panelSubTitle = computed(() => {
+  if (!setupMode.value) return t("login.subTitle");
+  return t(
+    cloudConfigConfigured.value ? "login.cloudConfig.updateSubTitle" : "login.cloudConfig.subTitle"
+  );
+});
+const cloudConfigUsernameLabel = computed(() =>
+  t(
+    cloudConfigConfigured.value
+      ? "login.cloudConfig.ownerUsername"
+      : "login.cloudConfig.adminUsername"
+  )
+);
+const cloudConfigPasswordLabel = computed(() =>
+  t(
+    cloudConfigConfigured.value
+      ? "login.cloudConfig.ownerPassword"
+      : "login.cloudConfig.adminPassword"
+  )
+);
 
 const footerCopyright = computed(() =>
   getConfigValue(configStore.configData, ["copyright", "sys_web_copyright"])
@@ -249,11 +281,36 @@ const cloudConfigForm = reactive<CloudConfigBindForm>({
 });
 
 const cloudConfigRules = computed<FormRules<CloudConfigBindForm>>(() => ({
-  admin_username: [{ required: true, message: t("login.cloudConfig.adminUsernameRequired"), trigger: "blur" }],
-  admin_password: [{ required: true, message: t("login.cloudConfig.adminPasswordRequired"), trigger: "blur" }],
+  admin_username: [
+    {
+      required: true,
+      message: t(
+        cloudConfigConfigured.value
+          ? "login.cloudConfig.ownerUsernameRequired"
+          : "login.cloudConfig.adminUsernameRequired"
+      ),
+      trigger: "blur",
+    },
+  ],
+  admin_password: [
+    {
+      required: true,
+      message: t(
+        cloudConfigConfigured.value
+          ? "login.cloudConfig.ownerPasswordRequired"
+          : "login.cloudConfig.adminPasswordRequired"
+      ),
+      trigger: "blur",
+    },
+  ],
   instance_id: [
     { required: true, message: t("login.cloudConfig.instanceIdRequired"), trigger: "change" },
-    { type: "number", min: 1, message: t("login.cloudConfig.instanceIdRequired"), trigger: "change" },
+    {
+      type: "number",
+      min: 1,
+      message: t("login.cloudConfig.instanceIdRequired"),
+      trigger: "change",
+    },
   ],
   service_credential: [
     { required: true, message: t("login.cloudConfig.serviceCredentialRequired"), trigger: "blur" },
@@ -286,6 +343,7 @@ function showLoginMode() {
 async function handleCloudConfigSubmit() {
   if (!cloudConfigFormRef.value || !(await cloudConfigFormRef.value.validate())) return;
 
+  const rebinding = cloudConfigConfigured.value;
   try {
     loading.value = true;
     await AuthAPI.bindCloudConfig({
@@ -300,7 +358,9 @@ async function handleCloudConfigSubmit() {
     cloudConfigForm.service_credential = "";
     ElNotification({
       title: t("login.cloudConfig.successTitle"),
-      message: t("login.cloudConfig.success"),
+      message: t(
+        rebinding ? "login.cloudConfig.updateSuccess" : "login.cloudConfig.initialSuccess"
+      ),
       type: "success",
     });
   } catch (error) {

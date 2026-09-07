@@ -20,6 +20,7 @@ from ..secret import decrypt_secret, encrypt_secret
 from .model import AiControlPlaneConfigModel
 
 CLOUD_ENTERPRISE_OWNER_ROLE = "owner"
+CLOUD_BINDING_PROVISIONING_PREFIX = "kb-bind-admin:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,30 +153,8 @@ async def authenticate_control_plane_push(
 
 
 async def bind_control_plane(db: AsyncSession, data: CloudControlPlaneBindSchema) -> dict[str, bool]:
-    admin = (
-        await db.execute(
-            select(
-                UserModel.id,
-                UserModel.username,
-                UserModel.password,
-                UserModel.name,
-                UserModel.email,
-                UserModel.status,
-                UserModel.is_superuser,
-            ).where(
-                UserModel.username == data.admin_username.strip(),
-                UserModel.is_deleted.is_(False),
-            )
-        )
-    ).mappings().one_or_none()
-    if (
-        admin is None
-        or admin["status"] != 0
-        or not admin["is_superuser"]
-        or not PwdUtil.verify_password(data.admin_password, admin["password"])
-    ):
-        raise CustomException(msg="本地管理员账号或密码错误", code=10401, status_code=401)
-
+    binding_username = data.admin_username.strip()
+    current_config = await get_control_plane_config(db=db)
     record = (
         await db.execute(
             select(AiControlPlaneConfigModel)
@@ -183,6 +162,33 @@ async def bind_control_plane(db: AsyncSession, data: CloudControlPlaneBindSchema
             .limit(1)
         )
     ).scalar_one_or_none()
+
+    admin = None
+    if current_config is None:
+        admin = (
+            await db.execute(
+                select(
+                    UserModel.id,
+                    UserModel.username,
+                    UserModel.password,
+                    UserModel.name,
+                    UserModel.email,
+                    UserModel.status,
+                    UserModel.is_superuser,
+                ).where(
+                    UserModel.username == binding_username,
+                    UserModel.is_deleted.is_(False),
+                )
+            )
+        ).mappings().one_or_none()
+        if (
+            admin is None
+            or admin["status"] != 0
+            or not admin["is_superuser"]
+            or not PwdUtil.verify_password(data.admin_password, admin["password"])
+        ):
+            raise CustomException(msg="本地管理员账号或密码错误", code=10401, status_code=401)
+
     api_url = record.api_url if record is not None and record.api_url.strip() else settings.KB_CONTROL_PLANE_API_URL
     candidate = build_control_plane_config(
         api_url,
@@ -193,43 +199,53 @@ async def bind_control_plane(db: AsyncSession, data: CloudControlPlaneBindSchema
     from .member_client import CloudMemberClient
 
     client = CloudMemberClient(config=candidate)
-    members = await client.list_members()
-    member_payload = {
-        "username": admin["username"],
-        "password": data.admin_password,
-        "name": admin["name"],
-        "status": admin["status"],
-        "desktop_enabled": True,
-        "knowledge_enabled": True,
-        "model_enabled": True,
-    }
-    existing_admin = next(
-        (
-            member
-            for member in members
-            if str(member.get("username") or "").strip().lower() == str(admin["username"]).strip().lower()
-        ),
-        None,
-    )
-    if existing_admin is None:
-        raise CustomException(
-            msg="云面板中未找到对应的企业超管，请先在云面板创建并设置为企业超管后再绑定",
-            status_code=403,
+    if current_config is None:
+        member_payload = {
+            "username": binding_username,
+            "password": data.admin_password,
+            "name": admin["name"],
+            "status": admin["status"],
+            "desktop_enabled": True,
+            "knowledge_enabled": True,
+            "model_enabled": True,
+        }
+        if admin["email"]:
+            member_payload["email"] = admin["email"]
+        created_member = await client.create_member(
+            member_payload,
+            f"{CLOUD_BINDING_PROVISIONING_PREFIX}{candidate.instance_id}:{binding_username.casefold()}",
         )
-
-    if existing_admin is not None:
+        created_username = str(created_member.get("username") or "").strip().casefold()
+        if not created_username or created_username != binding_username.casefold():
+            raise CustomException(msg="云端企业超管创建结果无效", status_code=502)
+        if not _is_cloud_enterprise_owner(created_member):
+            raise CustomException(msg="云端绑定账号不是企业超管，绑定未保存", status_code=403)
+    else:
+        members = await client.list_members()
+        existing_admin = next(
+            (
+                member
+                for member in members
+                if str(member.get("username") or "").strip().casefold() == binding_username.casefold()
+            ),
+            None,
+        )
+        if existing_admin is None:
+            raise CustomException(msg="目标实例中未找到对应的企业超管，不能完成换绑", status_code=403)
         if not _is_cloud_enterprise_owner(existing_admin):
-            raise CustomException(msg="云端绑定账号不是当前企业超管，不能完成绑定", status_code=403)
-        try:
-            cloud_user_id = int(existing_admin.get("user_id"))
-        except (TypeError, ValueError) as exc:
-            raise CustomException(msg="云端管理员返回数据无效", status_code=502) from exc
-        if cloud_user_id <= 0:
-            raise CustomException(msg="云端管理员返回数据无效", status_code=502)
-        await client.update_member(
-            cloud_user_id,
-            {key: value for key, value in member_payload.items() if key not in {"username", "password"}},
-        )
+            raise CustomException(msg="云端绑定账号不是当前企业超管，不能完成换绑", status_code=403)
+
+        verified = await client.login_member(binding_username, data.admin_password)
+        verified_user = verified.get("user")
+        if not isinstance(verified_user, dict) or not _is_cloud_enterprise_owner(verified_user):
+            raise CustomException(msg="云端企业超管账号验证失败，不能完成换绑", status_code=403)
+        verified_username = str(verified_user.get("username") or "").strip().casefold()
+        if verified_username != binding_username.casefold():
+            raise CustomException(msg="云端企业超管账号验证结果无效", status_code=502)
+        listed_user_id = existing_admin.get("user_id")
+        verified_user_id = verified_user.get("user_id")
+        if listed_user_id is not None and verified_user_id is not None and str(listed_user_id) != str(verified_user_id):
+            raise CustomException(msg="云端企业超管账号验证结果无效", status_code=502)
 
     if record is None:
         record = AiControlPlaneConfigModel(
