@@ -3,6 +3,7 @@
     v-model="drawerVisible"
     title="访问控制"
     :size="drawerSize"
+    append-to-body
     destroy-on-close
     @close="onDrawerClosed"
   >

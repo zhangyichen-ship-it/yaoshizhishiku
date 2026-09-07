@@ -3,12 +3,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.v1.module_system.auth.schema import CloudControlPlaneBindSchema
-from app.api.v1.module_system.user.model import UserModel
 from app.core.exceptions import CustomException
 from app.plugin.module_ai.knowledge import control_plane_service
 from app.plugin.module_ai.knowledge.model import AiControlPlaneConfigModel
 from app.plugin.module_ai.secret import decrypt_secret
-from app.utils.hash_bcrpy_util import PwdUtil
 
 
 def test_cloud_config_status_route_is_public(ai_client) -> None:
@@ -40,25 +38,13 @@ def test_control_plane_config_allows_local_endpoint_and_rejects_url_credentials(
 
 
 @pytest.mark.asyncio
-async def test_bind_control_plane_creates_cloud_owner_and_encrypts_credential(tmp_path, monkeypatch) -> None:
+async def test_bind_control_plane_forwards_cloud_owner_without_local_validation(tmp_path, monkeypatch) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'control-plane.db'}")
     async with engine.begin() as connection:
-        await connection.run_sync(UserModel.__table__.create)
         await connection.run_sync(AiControlPlaneConfigModel.__table__.create)
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as db:
-        db.add(
-            UserModel(
-                username="admin",
-                password=PwdUtil.hash_password("admin123"),
-                name="Administrator",
-                email="admin@example.com",
-                is_superuser=True,
-                status=0,
-            )
-        )
-        await db.flush()
         monkeypatch.setattr(control_plane_service.settings, "KB_CONTROL_PLANE_TIMEOUT", 10.0)
         monkeypatch.setattr(
             control_plane_service.settings,
@@ -80,6 +66,7 @@ async def test_bind_control_plane_creates_cloud_owner_and_encrypts_credential(tm
         monkeypatch.setattr("app.plugin.module_ai.knowledge.member_client.CloudMemberClient.create_member", fake_create_member)
         data = CloudControlPlaneBindSchema(
             admin_username="admin",
+            name="Administrator",
             admin_password="admin123",
             instance_id=7,
             service_credential="instance-secret",
@@ -89,13 +76,8 @@ async def test_bind_control_plane_creates_cloud_owner_and_encrypts_credential(tm
         assert created_call == {
             "payload": {
                 "username": "admin",
-                "password": "admin123",
                 "name": "Administrator",
-                "email": "admin@example.com",
-                "status": 0,
-                "desktop_enabled": True,
-                "knowledge_enabled": True,
-                "model_enabled": True,
+                "password": "admin123",
             },
             "idempotency_key": "kb-bind-admin:7:admin",
         }
@@ -125,7 +107,6 @@ async def test_bind_control_plane_validates_rebind_owner_and_password(
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'control-plane-update.db'}")
     async with engine.begin() as connection:
-        await connection.run_sync(UserModel.__table__.create)
         await connection.run_sync(AiControlPlaneConfigModel.__table__.create)
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -172,6 +153,7 @@ async def test_bind_control_plane_validates_rebind_owner_and_password(
 
         data = CloudControlPlaneBindSchema(
             admin_username="admin",
+            name="Administrator",
             admin_password="cloud-owner-password",
             instance_id=7,
             service_credential="new-secret",
@@ -209,22 +191,10 @@ async def test_bind_control_plane_validates_rebind_owner_and_password(
 async def test_bind_control_plane_rejects_non_owner_created_account(tmp_path, monkeypatch) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'control-plane-missing.db'}")
     async with engine.begin() as connection:
-        await connection.run_sync(UserModel.__table__.create)
         await connection.run_sync(AiControlPlaneConfigModel.__table__.create)
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as db:
-        db.add(
-            UserModel(
-                username="admin",
-                password=PwdUtil.hash_password("admin123"),
-                name="Administrator",
-                email="admin@example.com",
-                is_superuser=True,
-                status=0,
-            )
-        )
-        await db.flush()
         monkeypatch.setattr(control_plane_service.settings, "KB_CONTROL_PLANE_TIMEOUT", 10.0)
         monkeypatch.setattr(
             control_plane_service.settings,
@@ -239,6 +209,7 @@ async def test_bind_control_plane_rejects_non_owner_created_account(tmp_path, mo
 
         data = CloudControlPlaneBindSchema(
             admin_username="admin",
+            name="Administrator",
             admin_password="admin123",
             instance_id=7,
             service_credential="instance-secret",

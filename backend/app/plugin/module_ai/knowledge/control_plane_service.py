@@ -9,11 +9,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.module_system.auth.schema import CloudControlPlaneBindSchema
-from app.api.v1.module_system.user.model import UserModel
 from app.core.database import async_db_session
 from app.core.exceptions import CustomException
 from app.core.logger import logger
-from app.utils.hash_bcrpy_util import PwdUtil
 
 from ..config import settings
 from ..secret import decrypt_secret, encrypt_secret
@@ -154,6 +152,9 @@ async def authenticate_control_plane_push(
 
 async def bind_control_plane(db: AsyncSession, data: CloudControlPlaneBindSchema) -> dict[str, bool]:
     binding_username = data.admin_username.strip()
+    binding_name = data.name.strip()
+    if not binding_name:
+        raise CustomException(msg="昵称不能为空", status_code=422)
     current_config = await get_control_plane_config(db=db)
     record = (
         await db.execute(
@@ -162,32 +163,6 @@ async def bind_control_plane(db: AsyncSession, data: CloudControlPlaneBindSchema
             .limit(1)
         )
     ).scalar_one_or_none()
-
-    admin = None
-    if current_config is None:
-        admin = (
-            await db.execute(
-                select(
-                    UserModel.id,
-                    UserModel.username,
-                    UserModel.password,
-                    UserModel.name,
-                    UserModel.email,
-                    UserModel.status,
-                    UserModel.is_superuser,
-                ).where(
-                    UserModel.username == binding_username,
-                    UserModel.is_deleted.is_(False),
-                )
-            )
-        ).mappings().one_or_none()
-        if (
-            admin is None
-            or admin["status"] != 0
-            or not admin["is_superuser"]
-            or not PwdUtil.verify_password(data.admin_password, admin["password"])
-        ):
-            raise CustomException(msg="本地管理员账号或密码错误", code=10401, status_code=401)
 
     api_url = record.api_url if record is not None and record.api_url.strip() else settings.KB_CONTROL_PLANE_API_URL
     candidate = build_control_plane_config(
@@ -202,15 +177,9 @@ async def bind_control_plane(db: AsyncSession, data: CloudControlPlaneBindSchema
     if current_config is None:
         member_payload = {
             "username": binding_username,
+            "name": binding_name,
             "password": data.admin_password,
-            "name": admin["name"],
-            "status": admin["status"],
-            "desktop_enabled": True,
-            "knowledge_enabled": True,
-            "model_enabled": True,
         }
-        if admin["email"]:
-            member_payload["email"] = admin["email"]
         created_member = await client.create_member(
             member_payload,
             f"{CLOUD_BINDING_PROVISIONING_PREFIX}{candidate.instance_id}:{binding_username.casefold()}",

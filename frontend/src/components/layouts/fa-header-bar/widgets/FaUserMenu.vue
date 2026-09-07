@@ -94,6 +94,7 @@
     <FaConfigInfoDrawer v-model="paramDrawerVisible" />
     <FaDialog
       v-model="passwordDialogVisible"
+      append-to-body
       width="460px"
       :title="t('topBar.user.changePassword')"
       :confirm-loading="passwordSaving"

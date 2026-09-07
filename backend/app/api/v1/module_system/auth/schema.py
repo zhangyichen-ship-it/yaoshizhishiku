@@ -57,6 +57,7 @@ class CloudControlPlaneBindSchema(BaseModel):
     """首次绑定使用本地管理员，换绑使用目标实例的企业超管。"""
 
     admin_username: str = Field(..., min_length=1, max_length=32, description="首次绑定的本地管理员账号；换绑时为企业超管账号")
+    name: str = Field(..., min_length=1, max_length=32, description="首次绑定时创建的企业超管昵称")
     admin_password: str = Field(..., min_length=1, max_length=128, description="首次绑定的本地管理员密码；换绑时为企业超管密码")
     instance_id: int = Field(..., gt=0, description="客户知识库实例ID")
     service_credential: str = Field(..., min_length=1, max_length=256, description="云面板服务凭证")

@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 3306
     DATABASE_USER: str = "root"
-    DATABASE_PASSWORD: str = ""
+    DATABASE_PASSWORD: str = "123456"
     DATABASE_NAME: str = "yostone_knowledge"
 
     # ================================================= #

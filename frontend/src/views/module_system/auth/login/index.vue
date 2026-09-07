@@ -57,6 +57,13 @@
                             :placeholder="t('login.placeholder.username')"
                           />
                         </ElFormItem>
+                        <ElFormItem :label="t('login.cloudConfig.nickname')" prop="name">
+                          <ElInput
+                            v-model.trim="cloudConfigForm.name"
+                            autocomplete="name"
+                            :placeholder="t('login.cloudConfig.nicknamePlaceholder')"
+                          />
+                        </ElFormItem>
                         <ElFormItem :label="cloudConfigPasswordLabel" prop="admin_password">
                           <ElInput
                             v-model="cloudConfigForm.admin_password"
@@ -275,6 +282,7 @@ const captchaLoading = ref(false);
 
 const cloudConfigForm = reactive<CloudConfigBindForm>({
   admin_username: "",
+  name: "",
   admin_password: "",
   instance_id: 0,
   service_credential: "",
@@ -289,6 +297,13 @@ const cloudConfigRules = computed<FormRules<CloudConfigBindForm>>(() => ({
           ? "login.cloudConfig.ownerUsernameRequired"
           : "login.cloudConfig.adminUsernameRequired"
       ),
+      trigger: "blur",
+    },
+  ],
+  name: [
+    {
+      required: true,
+      message: t("login.cloudConfig.nicknameRequired"),
       trigger: "blur",
     },
   ],
@@ -353,6 +368,7 @@ async function handleCloudConfigSubmit() {
     cloudConfigConfigured.value = true;
     setupMode.value = false;
     cloudConfigForm.admin_username = "";
+    cloudConfigForm.name = "";
     cloudConfigForm.admin_password = "";
     cloudConfigForm.instance_id = 0;
     cloudConfigForm.service_credential = "";

@@ -108,6 +108,7 @@ export interface CloudConfigStatus {
 
 export interface CloudConfigBindForm {
   admin_username: string;
+  name: string;
   admin_password: string;
   instance_id: number;
   service_credential: string;
