@@ -155,7 +155,7 @@ class MenuService:
     ) -> list[dict]:
         menu_list = await MenuCRUD(self.auth).tree_list(search=vars(search) if search else None, order_by=order_by)
         menu_dict_list = [MenuTreeOutSchema.model_validate(menu).model_dump() for menu in menu_list]
-        # Existing databases can retain AI menus after the optional plugin is disabled.
+        # Existing databases retain the built-in AI menu records.
         menu_dict_list = filter_ai_seed_data("platform_menu", menu_dict_list)
         return traversal_to_tree(menu_dict_list)
 

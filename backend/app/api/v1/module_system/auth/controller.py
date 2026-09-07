@@ -38,6 +38,7 @@ from .schema import (
     AutoLoginTokenSchema,
     AutoLoginUserSchema,
     CaptchaOutSchema,
+    CloudControlPlaneBindSchema,
     CloudIdentityExchangeSchema,
     CloudIdentityLoginSchema,
     LoginSchema,
@@ -64,7 +65,6 @@ async def login_for_access_token_controller(
     db: Annotated[AsyncSession, Depends(db_getter)],
 ) -> JSONResponse | dict:
     from app.api.v1.module_system.user.model import UserModel
-    from app.plugin.module_ai.config import settings as ai_settings
 
     local_user = (
         await db.execute(
@@ -74,11 +74,14 @@ async def login_for_access_token_controller(
             )
         )
     ).scalar_one_or_none()
-    cloud_configured = bool(
-        ai_settings.KB_CONTROL_PLANE_API_URL.strip()
-        and ai_settings.KB_CONTROL_PLANE_INSTANCE_ID
-        and ai_settings.KB_CONTROL_PLANE_SERVICE_CREDENTIAL.strip()
-    )
+    cloud_configured = False
+    if local_user is None:
+        from app.core.plugins import is_ai_plugin_enabled
+
+        if is_ai_plugin_enabled():
+            from app.plugin.module_ai.knowledge.control_plane_service import get_control_plane_config
+
+            cloud_configured = await get_control_plane_config(db=db) is not None
     if local_user is None and cloud_configured:
         login_result = await LoginService.authenticate_cloud_user(
             request=request,
@@ -95,6 +98,50 @@ async def login_for_access_token_controller(
     if settings.DOCS_URL in request.headers.get("referer", ""):
         return login_result
     return SuccessResponse(data=login_result, msg="登录成功")
+
+
+@AuthRouter.get(
+    "/cloud-config/status",
+    summary="查询云面板绑定状态",
+    response_model=ResponseSchema[dict],
+)
+async def cloud_config_status_controller() -> JSONResponse:
+    from app.core.plugins import is_ai_plugin_enabled
+
+    if not is_ai_plugin_enabled():
+        return SuccessResponse(data={"available": False, "configured": False, "source": None}, msg="AI 模块未启用")
+
+    from app.plugin.module_ai.knowledge.control_plane_service import get_control_plane_config
+
+    config = await get_control_plane_config()
+    return SuccessResponse(
+        data={
+            "available": True,
+            "configured": config is not None,
+            "source": config.source if config else None,
+        },
+        msg="获取云面板绑定状态成功",
+    )
+
+
+@AuthRouter.post(
+    "/cloud-config",
+    summary="绑定云面板成员服务",
+    response_model=ResponseSchema[dict],
+)
+async def bind_cloud_config_controller(
+    data: CloudControlPlaneBindSchema,
+    db: Annotated[AsyncSession, Depends(db_getter)],
+) -> JSONResponse:
+    from app.core.plugins import is_ai_plugin_enabled
+
+    if not is_ai_plugin_enabled():
+        raise CustomException(msg="AI 模块未启用", status_code=503)
+
+    from app.plugin.module_ai.knowledge.control_plane_service import bind_control_plane
+
+    result = await bind_control_plane(db, data)
+    return SuccessResponse(data=result, msg="云面板绑定成功")
 
 
 @AuthRouter.post(

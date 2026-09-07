@@ -1,82 +1,10 @@
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
-from fastapi import Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.core.base_params import BaseQueryParam, UserByQueryParam
 from app.plugin.module_ai.config import validate_model_base_url
 
 EmbeddingProvider = Literal["local", "openai"]
-
-
-class ChatQuerySchema(BaseModel):
-    """WebSocket chat request."""
-
-    message: str = Field(..., min_length=1, max_length=8_000, description="Message content")
-    session_id: str | None = Field(None, description="Session ID")
-    files: list[dict[str, Any]] | None = Field(None, description="Ad-hoc file context")
-    knowledge_base_ids: list[int] = Field(default_factory=list, max_length=20, description="Knowledge base IDs")
-
-
-class ChatSessionCreateSchema(BaseModel):
-    """Create chat session request."""
-
-    title: str = Field(..., min_length=1, max_length=200, description="Session title")
-
-    @field_validator("title")
-    @classmethod
-    def validate_title(cls, value: str) -> str:
-        value = value.strip()
-        if len(value) < 1 or len(value) > 200:
-            raise ValueError("会话标题长度必须在 1-200 个字符之间")
-        return value
-
-
-class ChatSessionUpdateSchema(BaseModel):
-    """Update chat session request."""
-
-    title: str = Field(..., min_length=1, max_length=200, description="Session title")
-
-    @field_validator("title")
-    @classmethod
-    def validate_title(cls, value: str) -> str:
-        value = value.strip()
-        if len(value) < 1 or len(value) > 200:
-            raise ValueError("会话标题长度必须在 1-200 个字符之间")
-        return value
-
-
-@dataclass
-class ChatSessionQueryParam(BaseQueryParam, UserByQueryParam):
-    """Chat session list query."""
-
-    title: str | None = Query(None, description="Session title")
-
-
-class AiChatRequestSchema(BaseModel):
-    """Non-streaming AI chat request."""
-
-    message: str = Field(..., min_length=1, max_length=8_000, description="User message")
-    session_id: str | None = Field(None, description="Session ID; creates a new session when omitted")
-    knowledge_base_ids: list[int] = Field(default_factory=list, max_length=20, description="Knowledge base IDs")
-
-    @field_validator("message")
-    @classmethod
-    def validate_message(cls, value: str) -> str:
-        value = value.strip()
-        if len(value) < 1:
-            raise ValueError("用户消息内容不能为空")
-        return value
-
-
-class AiChatResponseSchema(BaseModel):
-    """Non-streaming AI chat response."""
-
-    response: str = Field(..., description="AI response content")
-    session_id: str = Field(..., description="Session ID")
-    function_calls: list[dict[str, Any]] | None = Field(None, description="Function call metadata")
-    action: dict[str, Any] | None = Field(None, description="Suggested action")
 
 
 class AiEmbeddingConfigOutSchema(BaseModel):
@@ -85,6 +13,32 @@ class AiEmbeddingConfigOutSchema(BaseModel):
     provider: EmbeddingProvider
     model: str
     base_url: str
+
+
+class AiEmbeddingConfigPushSchema(AiEmbeddingConfigOutSchema):
+    """Safe vector-model configuration accepted from the cloud panel."""
+
+    base_url: str = Field(default="", max_length=500)
+
+    @field_validator("model")
+    @classmethod
+    def validate_model_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("向量模型名称不能为空")
+        return normalized
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str) -> str:
+        normalized = value.strip()
+        return validate_model_base_url(normalized) if normalized else ""
+
+    @model_validator(mode="after")
+    def validate_provider_endpoint(self) -> "AiEmbeddingConfigPushSchema":
+        if self.provider == "openai" and not self.base_url:
+            raise ValueError("OpenAI 向量模型必须配置 API 地址")
+        return self
 
 
 class AiModelConfigOutSchema(BaseModel):

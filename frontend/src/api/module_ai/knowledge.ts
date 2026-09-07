@@ -60,9 +60,10 @@ const KnowledgeAPI = {
   },
 
   reindexDocument(id: number) {
-    return request<ApiResponse>({
+    return request<ApiResponse<KnowledgeDocument>>({
       url: `${API_PATH}/document/${id}/reindex`,
       method: "post",
+      showSuccessMessage: false,
     });
   },
 
@@ -118,6 +119,22 @@ const KnowledgeAPI = {
       url: `${API_PATH}/members/${userId}/access`,
       method: "put",
       data: body,
+    });
+  },
+
+  getModelUsageSummary() {
+    return request<ApiResponse<ModelUsageSummary>>({
+      url: `${API_PATH}/usage-summary`,
+      method: "get",
+      showErrorMessage: false,
+    });
+  },
+
+  getBillingSummary() {
+    return request<ApiResponse<ModelBillingSummary>>({
+      url: `${API_PATH}/billing-summary`,
+      method: "get",
+      showErrorMessage: false,
     });
   },
 };
@@ -211,4 +228,58 @@ export interface KnowledgeBaseAccess {
 
 export interface KnowledgeBaseAccessForm {
   knowledge_base_ids: number[];
+}
+
+export interface ModelUsageDay {
+  day: string;
+  request_count: number;
+  usage_reported_requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cached_input_tokens: number;
+  cache_creation_input_tokens: number;
+  total_cost_cny: number;
+  free_cost_cny: number;
+  paid_cost_cny: number;
+}
+
+export interface ModelUsageUser {
+  user_id: string | null;
+  username: string;
+  request_count: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cached_input_tokens: number;
+  cache_creation_input_tokens: number;
+  total_cost_cny: number;
+  free_cost_cny: number;
+  paid_cost_cny: number;
+}
+
+export interface ModelUsageSummary {
+  items: ModelUsageDay[];
+  users?: ModelUsageUser[];
+  request_count: number;
+  usage_reported_requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cached_input_tokens: number;
+  cache_creation_input_tokens: number;
+  total_cost_cny: number;
+  free_cost_cny: number;
+  paid_cost_cny: number;
+}
+
+export interface ModelBillingSummary {
+  currency: "CNY";
+  memberCount: number;
+  freeLimitCny: number;
+  freeUsedCny: number;
+  freeRemainingCny: number;
+  paidBalanceCny: number;
+  totalAvailableCny: number;
+  billingBlocked: boolean;
 }

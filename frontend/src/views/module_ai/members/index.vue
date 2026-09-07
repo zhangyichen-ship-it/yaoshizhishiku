@@ -2,7 +2,7 @@
   <div class="members-page">
     <FaAiPageHeader
       title="员工与知识库权限"
-      description="员工账号和产品权限由云面板维护，本页只配置客户知识库的访问范围。"
+      description="员工账号和产品权限由云面板维护，本页配置知识库访问范围并同步到云面板。"
     >
       <template #actions>
         <ElButton :icon="Refresh" :loading="loading" @click="loadData">刷新</ElButton>
@@ -124,7 +124,7 @@
       <ElAlert
         v-if="accessMember && !accessMember.knowledge_enabled"
         title="云端知识库权限已关闭"
-        description="当前员工即使配置了本地 ACL，也不会获得知识库访问权限。"
+        description="当前员工即使有知识库资源授权，云端产品权限关闭仍不会获得知识库访问权限。"
         type="warning"
         :closable="false"
         show-icon

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.module_system.role import crud as role_crud
 from app.api.v1.module_system.role.crud import RoleCRUD
@@ -180,6 +181,54 @@ async def test_current_info_returns_flat_permissions_from_enabled_role_menus(mon
 
 
 @pytest.mark.asyncio
+async def test_cloud_current_info_returns_only_menu_roots(monkeypatch):
+    page_menu = _menu(
+        id=2,
+        name="知识库管理",
+        permission="module_ai:knowledge:query",
+        route_name="Knowledge",
+        route_path="knowledge",
+        component_path="module_ai/knowledge/index",
+        title="知识库管理",
+        parent_id=1,
+    )
+    root_menu = _menu(
+        id=1,
+        name="AI 知识库",
+        type=1,
+        permission=None,
+        route_name="AI",
+        route_path="/ai",
+        redirect="/ai/knowledge",
+        component_path=None,
+        title="AI 知识库",
+    )
+    root_menu.children = [page_menu]
+    page_menu.children = None
+    current_user = _user(
+        auth_source="cloud_kb",
+        uuid="cloud-user",
+        roles=[],
+    )
+
+    class FakeMenuCRUD:
+        def __init__(self, _auth):
+            pass
+
+        async def tree_list(self, **_kwargs):
+            return [root_menu, page_menu]
+
+    monkeypatch.setattr(user_service, "MenuCRUD", FakeMenuCRUD)
+
+    result = await user_service.UserService(
+        AuthSchema(user=current_user, permission_map={"module_ai:knowledge:query": -1})
+    ).current_info()
+
+    assert [menu["route_name"] for menu in result.menus] == ["AI"]
+    assert [menu["route_name"] for menu in result.menus[0]["children"]] == ["Knowledge"]
+
+
+@pytest.mark.asyncio
 async def test_current_info_queries_only_current_menu_columns(monkeypatch):
     menu = _menu()
     disabled_menu = _menu(id=2, permission="module_system:user:delete")
@@ -319,16 +368,20 @@ def test_seed_users_do_not_include_historical_tenant_accounts():
     assert {item["role_id"] for item in user_roles} <= {1, 2, 3}
 
 
-def test_seed_role_menu_mapping_grants_user_ai_session_access():
+def test_seed_role_menu_mapping_grants_user_knowledge_access():
     role_menus = json.loads((SEED_DIR / "sys_role_menus.json").read_text(encoding="utf-8"))
 
     assert role_menus
     assert {item["role_code"] for item in role_menus} == {"USER"}
     assert {item.get("permission") for item in role_menus if item.get("permission")} >= {
-        "module_ai:chat:query",
-        "module_ai:chat:ws",
-        "module_ai:session:query",
+        "module_ai:knowledge:query",
+        "module_ai:document:query",
+        "module_ai:retrieval:test",
     }
+    assert not any(
+        str(item.get("permission", "")).startswith(("module_ai:chat:", "module_ai:session:"))
+        for item in role_menus
+    )
 
 
 @pytest.mark.asyncio
@@ -351,6 +404,39 @@ async def test_change_password_persists_the_hash(monkeypatch):
     assert user.updated_id == 99
     db.flush.assert_awaited_once()
     db.refresh.assert_awaited_once_with(user)
+
+
+@pytest.mark.asyncio
+async def test_cloud_user_password_change_delegates_to_cloud_identity(monkeypatch):
+    from app.plugin.module_ai.knowledge import member_client
+
+    calls = []
+    result = object()
+    request_db = AsyncSession()
+
+    class FakeCloudMemberClient:
+        def __init__(self, *, db):
+            assert db is request_db
+
+        async def change_password(self, identity_token, old_password, new_password):
+            calls.append((identity_token, old_password, new_password))
+
+    monkeypatch.setattr(member_client, "CloudMemberClient", FakeCloudMemberClient)
+    service = user_service.UserService(
+        AuthSchema(
+            user=_user(auth_source="cloud_kb"),
+            db=request_db,
+            session_info={"cloud_identity_token": "kbid_employee_token"},
+        )
+    )
+    monkeypatch.setattr(service, "_cloud_current_info", AsyncMock(return_value=result))
+
+    response = await service.change_password(
+        SimpleNamespace(old_password="old123", new_password="new123")
+    )
+
+    assert response is result
+    assert calls == [("kbid_employee_token", "old123", "new123")]
 
 
 def test_seed_data_has_no_historical_org_noise():
@@ -465,18 +551,11 @@ def test_backend_permission_dependencies_are_declared_in_permission_catalog():
     assert not missing
 
 
-def test_chat_http_routes_use_explicit_permission_dependencies():
+def test_customer_kb_chat_routes_are_removed_and_model_config_stays_protected():
     controller = (APP_DIR / "plugin" / "module_ai" / "chat" / "controller.py").read_text(encoding="utf-8")
 
     assert not re.search(r"Depends\(get_current_user\)", controller)
-    for permission in [
-        "module_ai:session:detail",
-        "module_ai:session:query",
-        "module_ai:chat:create",
-        "module_ai:chat:update",
-        "module_ai:session:delete",
-        "module_ai:chat:ws",
-        "module_ai:model_config:query",
-        "module_ai:model_config:update",
-    ]:
-        assert permission in controller
+    assert "module_ai:session:" not in controller
+    assert "module_ai:chat:" not in controller
+    assert "module_ai:model_config:query" in controller
+    assert "module_ai:model_config:update" in controller

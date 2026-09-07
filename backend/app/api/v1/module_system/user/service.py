@@ -214,6 +214,9 @@ class UserService:
 
         menu_tree: list[dict[str, Any]] = []
         for menu in menu_nodes:
+            # tree_list 预加载子节点但仍返回扁平列表，只序列化根节点，避免子菜单再次成为顶级菜单。
+            if menu.parent_id is not None:
+                continue
             node = MenuTreeOutSchema.model_validate(menu).model_dump()
             filtered = filter_node(node)
             if filtered is not None:
@@ -271,6 +274,20 @@ class UserService:
             raise CustomException(msg="该数据不存在")
         if not data.old_password or not data.new_password:
             raise CustomException(msg="密码不能为空")
+
+        if getattr(self.auth.user, "auth_source", None) == "cloud_kb":
+            from app.plugin.module_ai.knowledge.member_client import CloudMemberClient
+
+            session_info = self.auth.session_info or {}
+            identity_token = str(session_info.get("cloud_identity_token") or "").strip()
+            if not identity_token:
+                raise CustomException(msg="云端身份会话已失效，请重新登录", code=10401, status_code=401)
+            await CloudMemberClient(db=self.auth.db).change_password(
+                identity_token,
+                data.old_password,
+                data.new_password,
+            )
+            return await self._cloud_current_info()
 
         user = await UserCRUD(self.auth).get(id=self.auth.user.id)
         if not user:

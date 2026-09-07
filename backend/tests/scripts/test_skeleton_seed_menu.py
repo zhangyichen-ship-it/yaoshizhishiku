@@ -36,4 +36,5 @@ def test_seed_menu_contains_only_skeleton_and_ai_knowledge_routes():
     assert "module_ai" in serialized_routes
     assert "knowledge" in serialized_routes
     assert "retrieval" in serialized_routes
+    assert '"route_name": "ModelConfig"' not in json.dumps(data, ensure_ascii=False)
     assert "????" not in path.read_text(encoding="utf-8")

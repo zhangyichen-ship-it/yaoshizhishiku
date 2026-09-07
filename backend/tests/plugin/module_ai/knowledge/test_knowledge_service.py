@@ -140,6 +140,57 @@ async def test_bm25_indexing_skips_vector_dependencies_and_uses_chroma_ids(monke
 
 
 @pytest.mark.asyncio
+async def test_reindex_queues_background_job_and_returns_indexing_status(monkeypatch):
+    from app.plugin.module_ai.knowledge import service as service_module
+
+    document = SimpleNamespace(
+        id=9,
+        knowledge_base_id=7,
+        file_name="handbook.md",
+        file_path="handbook.md",
+        file_type="md",
+        file_size=12,
+        parse_status="success",
+        index_status="success",
+        error_message=None,
+    )
+
+    class DocumentCrud:
+        async def get_or_404(self, **_kwargs):
+            return document
+
+        async def update_status(self, _document_id, **kwargs):
+            for key, value in kwargs.items():
+                if value is not None:
+                    setattr(document, key, value)
+            return document
+
+    class BackgroundTasks:
+        def __init__(self):
+            self.tasks = []
+
+        def add_task(self, function, *args, **kwargs):
+            self.tasks.append((function, args, kwargs))
+
+    document_crud = DocumentCrud()
+    background_tasks = BackgroundTasks()
+    monkeypatch.setattr(service_module, "KnowledgeDocumentCRUD", lambda _auth: document_crud)
+
+    result = await KnowledgeService(AuthSchema()).reindex_document(
+        document_id=document.id,
+        background_tasks=background_tasks,
+    )
+
+    assert result.index_status == "indexing"
+    assert result.parse_status == "pending"
+    assert len(background_tasks.tasks) == 1
+    function, args, kwargs = background_tasks.tasks[0]
+    assert function is service_module.index_document_in_background
+    assert args == (document.id, None)
+    assert kwargs == {}
+
+
+@pytest.mark.asyncio
 async def test_delete_document_validates_all_ids_before_deleting_external_indexes(monkeypatch):
     """Reject mixed-scope deletes before touching Chroma, BM25, or database rows."""
     from app.plugin.module_ai.knowledge import service as service_module

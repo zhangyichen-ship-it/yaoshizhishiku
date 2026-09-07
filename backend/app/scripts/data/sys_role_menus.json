@@ -5,38 +5,14 @@
   },
   {
     "role_code": "USER",
-    "permission": "module_ai:chat:query"
+    "permission": "module_ai:knowledge:query"
   },
   {
     "role_code": "USER",
-    "permission": "module_ai:chat:create"
+    "permission": "module_ai:document:query"
   },
   {
     "role_code": "USER",
-    "permission": "module_ai:chat:update"
-  },
-  {
-    "role_code": "USER",
-    "permission": "module_ai:chat:delete"
-  },
-  {
-    "role_code": "USER",
-    "permission": "module_ai:chat:detail"
-  },
-  {
-    "role_code": "USER",
-    "permission": "module_ai:chat:ws"
-  },
-  {
-    "role_code": "USER",
-    "permission": "module_ai:session:query"
-  },
-  {
-    "role_code": "USER",
-    "permission": "module_ai:session:detail"
-  },
-  {
-    "role_code": "USER",
-    "permission": "module_ai:session:delete"
+    "permission": "module_ai:retrieval:test"
   }
 ]

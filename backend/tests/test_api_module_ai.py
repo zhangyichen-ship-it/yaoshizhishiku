@@ -1,46 +1,47 @@
-"""
-模块接口测试 —— module_ai（AI 对话模块）
+"""模块接口测试 —— module_ai 的客户知识库路由边界。"""
 
-动态路由映射：module_ai → /ai
-每个接口一个测试用例，覆盖会话 CRUD 与 AI 对话。
-"""
-
-from conftest import assert_route
 from fastapi.testclient import TestClient
 
 
-class TestAiChat:
-    """AI 对话接口。"""
+def test_customer_kb_does_not_register_chat_or_session_routes(ai_client: TestClient) -> None:
+    for method, path in (
+        ("GET", "/ai/chat/list"),
+        ("GET", "/ai/chat/detail/test_session"),
+        ("POST", "/ai/chat/create"),
+        ("PUT", "/ai/chat/update/test_session"),
+        ("DELETE", "/ai/chat/delete"),
+        ("POST", "/ai/chat/ai-chat"),
+        ("GET", "/ai/memory/list"),
+    ):
+        response = ai_client.request(method, path)
+        assert response.status_code == 404, f"仍注册客户侧对话路由: {method} {path}"
 
-    def test_ai_chat_list(self, ai_client: TestClient) -> None:
-        assert_route(ai_client, "GET", "/ai/chat/list")
 
-    def test_ai_chat_detail(self, ai_client: TestClient) -> None:
-        assert_route(ai_client, "GET", "/ai/chat/detail/test_session")
+def test_embedding_push_requires_instance_credential(ai_client: TestClient) -> None:
+    response = ai_client.post(
+        "/ai/chat/model-config/push-embedding",
+        json={"provider": "local", "model": "bge-small", "base_url": ""},
+    )
+    assert response.status_code == 401
 
-    def test_ai_chat_create(self, ai_client: TestClient) -> None:
-        assert_route(
-            ai_client,
-            "POST",
-            "/ai/chat/create",
-            json={"title": "测试会话"},
-        )
 
-    def test_ai_chat_update(self, ai_client: TestClient) -> None:
-        assert_route(
-            ai_client,
-            "PUT",
-            "/ai/chat/update/test_session",
-            json={"title": "更新会话"},
-        )
+def test_model_usage_push_requires_instance_credential(ai_client: TestClient) -> None:
+    response = ai_client.post(
+        "/ai/chat/model-usage/push",
+        json={
+            "request_id": "request-1",
+            "occurred_at": "2026-09-05T12:00:00",
+            "requested_model": "logical-model",
+            "upstream_model": "upstream-model",
+            "provider_name": "primary",
+            "protocol": "openai",
+            "status": 1,
+            "response_code": 200,
+        },
+    )
+    assert response.status_code == 401
 
-    def test_ai_chat_delete(self, ai_client: TestClient) -> None:
-        assert_route(ai_client, "DELETE", "/ai/chat/delete", json=["test_session"])
 
-    def test_ai_chat_non_stream(self, ai_client: TestClient) -> None:
-        assert_route(
-            ai_client,
-            "POST",
-            "/ai/chat/ai-chat",
-            json={"message": "你好", "session_id": "test_session"},
-        )
+def test_model_usage_summary_requires_member_permission(ai_client: TestClient) -> None:
+    response = ai_client.get("/ai/knowledge/usage-summary")
+    assert response.status_code in {401, 403}

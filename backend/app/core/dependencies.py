@@ -30,15 +30,6 @@ _CLOUD_KB_BASE_PERMISSIONS = {
     "module_ai:document:query",
     "module_ai:retrieval:test",
 }
-_CLOUD_KB_CHAT_PERMISSIONS = {
-    "module_ai:chat:query",
-    "module_ai:chat:ws",
-    "module_ai:chat:create",
-    "module_ai:chat:update",
-    "module_ai:session:query",
-    "module_ai:session:detail",
-    "module_ai:session:delete",
-}
 _CLOUD_KB_ADMIN_PERMISSIONS = {
     "module_ai:member:query",
     "module_ai:member:create",
@@ -194,8 +185,6 @@ def _cloud_kb_permission_map(member: Any, user_info: dict[str, Any]) -> dict[str
     if not user_info.get("knowledge_enabled"):
         return {}
     permissions = set(_CLOUD_KB_BASE_PERMISSIONS)
-    if user_info.get("model_enabled"):
-        permissions.update(_CLOUD_KB_CHAT_PERMISSIONS)
     if getattr(member, "local_role", "member") in {"owner", "acl_admin"}:
         permissions.update(_CLOUD_KB_ADMIN_PERMISSIONS)
     return {permission: -(index + 1) for index, permission in enumerate(sorted(permissions))}
@@ -252,7 +241,7 @@ async def _load_cloud_kb_session(
     from app.plugin.module_ai.knowledge.member_client import CloudMemberClient
     from app.plugin.module_ai.knowledge.member_service import CustomerMemberService
 
-    client = CloudMemberClient()
+    client = CloudMemberClient(db=db)
     refreshed = False
     try:
         remote_user = await client.introspect_identity(cloud_identity_token)
@@ -327,6 +316,7 @@ async def _build_session_auth(
 
     auth = AuthSchema(db=db, redis=redis, permission_map=permission_map, check_data_scope=False)
     auth.user = user
+    auth.session_info = resolved_info
     return auth, resolved_info
 
 

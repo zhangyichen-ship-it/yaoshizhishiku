@@ -51,6 +51,12 @@ interface WorktabState {
   keepAliveExclude: string[];
 }
 
+type WorktabRouteLike = { name?: unknown; path?: string };
+
+export function isConcreteWorktabRoute(route: WorktabRouteLike): boolean {
+  return route.name !== "CatchAll404" && route.path !== "/:pathMatch(.*)*";
+}
+
 /**
  * 工作台标签页管理 Store
  */
@@ -469,14 +475,14 @@ export const useWorktabStore = defineStore(
           try {
             if (tab.name) {
               const routes = routerInstance.getRoutes();
-              if (routes.some((r) => r.name === tab.name)) return true;
+              if (routes.some((r) => r.name === tab.name && isConcreteWorktabRoute(r))) return true;
             }
             if (tab.path) {
               const resolved = routerInstance.resolve({
                 path: tab.path,
                 query: (tab.query as LocationQueryRaw) || undefined,
               });
-              return resolved.matched.length > 0;
+              return resolved.matched.some(isConcreteWorktabRoute);
             }
             return false;
           } catch {

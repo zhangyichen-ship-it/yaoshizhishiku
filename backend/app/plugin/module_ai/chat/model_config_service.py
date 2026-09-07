@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-import base64
-import hashlib
 from dataclasses import dataclass
 
-from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
 
-from app.config.setting import settings as core_settings
 from app.core.base_schema import AuthSchema
 from app.core.database import async_db_session
 from app.core.logger import logger
 from app.plugin.module_ai.config import settings, validate_model_base_url
+from app.plugin.module_ai.secret import decrypt_secret, encrypt_secret
 
 from .model import AiEmbeddingConfigModel, AiModelConfigModel
-from .schema import AiEmbeddingSyncOutSchema, AiModelConfigOutSchema, AiModelConfigUpdateSchema
+from .schema import (
+    AiEmbeddingConfigPushSchema,
+    AiEmbeddingSyncOutSchema,
+    AiModelConfigOutSchema,
+    AiModelConfigUpdateSchema,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,24 +46,12 @@ def _is_configured_api_key(value: str) -> bool:
     return bool(normalized and normalized not in {"your_api_key", "sk-yourapikey", "your-api-key"})
 
 
-def _fernet() -> Fernet:
-    # Derive a stable encryption key from the existing application secret.
-    key = base64.urlsafe_b64encode(hashlib.sha256(core_settings.SECRET_KEY.encode("utf-8")).digest())
-    return Fernet(key)
-
-
 def _encrypt_api_key(api_key: str) -> str:
-    return _fernet().encrypt(api_key.encode("utf-8")).decode("ascii")
+    return encrypt_secret(api_key)
 
 
 def _decrypt_api_key(value: str | None) -> str | None:
-    if not value:
-        return None
-    try:
-        return _fernet().decrypt(value.encode("ascii")).decode("utf-8")
-    except (InvalidToken, ValueError, UnicodeDecodeError):
-        logger.warning("AI model API key could not be decrypted; falling back to environment configuration")
-        return None
+    return decrypt_secret(value)
 
 
 def _environment_config() -> ChatModelRuntimeConfig:
@@ -262,16 +252,17 @@ async def _update_embedding_record(
     return record
 
 
-async def sync_embedding_model_config(auth: AuthSchema) -> AiEmbeddingSyncOutSchema:
-    """Pull the tenant-bound vector settings without importing a provider key."""
-    from ..knowledge.member_client import CloudMemberClient
-
+async def apply_embedding_model_config(
+    auth: AuthSchema,
+    remote: AiEmbeddingConfigPushSchema | dict[str, str],
+) -> AiEmbeddingSyncOutSchema:
+    """Apply a safe vector snapshot from either the cloud pull or push path."""
     previous = await load_runtime_embedding_model_config(auth)
-    remote = await CloudMemberClient().get_embedding_config()
+    remote_config = AiEmbeddingConfigPushSchema.model_validate(remote)
     data = AiModelConfigUpdateSchema(
-        embedding_provider=remote["provider"],
-        embedding_model=remote["model"],
-        embedding_base_url=remote["base_url"],
+        embedding_provider=remote_config.provider,
+        embedding_model=remote_config.model,
+        embedding_base_url=remote_config.base_url,
     )
     record = await _update_embedding_record(auth, data, await _find_embedding_record(auth))
     await auth.db.flush()
@@ -286,6 +277,14 @@ async def sync_embedding_model_config(auth: AuthSchema) -> AiEmbeddingSyncOutSch
         config=_to_output(chat, embedding),
         requires_reindex=requires_reindex,
     )
+
+
+async def sync_embedding_model_config(auth: AuthSchema) -> AiEmbeddingSyncOutSchema:
+    """Pull the tenant-bound vector settings without importing a provider key."""
+    from ..knowledge.member_client import CloudMemberClient
+
+    remote = await CloudMemberClient(db=getattr(auth, "db", None)).get_embedding_config()
+    return await apply_embedding_model_config(auth, remote)
 
 
 async def update_model_config(

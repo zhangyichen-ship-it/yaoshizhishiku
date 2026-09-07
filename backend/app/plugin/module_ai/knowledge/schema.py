@@ -1,4 +1,6 @@
 import re
+from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -133,3 +135,58 @@ class KnowledgeBaseAccessUpdateSchema(BaseModel):
 class KnowledgeBaseAccessOutSchema(BaseModel):
     user_id: int
     knowledge_base_ids: list[int] = Field(default_factory=list)
+
+
+class AiModelUsagePushSchema(BaseModel):
+    """Validated, non-sensitive model-usage event from the cloud panel."""
+
+    request_id: str = Field(..., min_length=1, max_length=64)
+    occurred_at: datetime
+    user_id: str | None = Field(default=None, max_length=64)
+    username: str | None = Field(default=None, max_length=64)
+    requested_model: str = Field(..., min_length=1, max_length=255)
+    upstream_model: str = Field(..., min_length=1, max_length=255)
+    provider_name: str = Field(..., min_length=1, max_length=100)
+    protocol: str = Field(..., min_length=1, max_length=32)
+    purpose: str = Field(default="chat", min_length=1, max_length=32)
+    status: int = Field(..., ge=0, le=1)
+    response_code: int = Field(..., ge=0, le=599)
+    is_stream: bool = False
+    usage_reported: bool = False
+    prompt_tokens: int = Field(default=0, ge=0, le=2_147_483_647)
+    completion_tokens: int = Field(default=0, ge=0, le=2_147_483_647)
+    cached_input_tokens: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    cache_creation_input_tokens: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    duration_ms: int = Field(default=0, ge=0, le=2_147_483_647)
+    input_cost_cny: Decimal | None = Field(default=None, ge=0, max_digits=24, decimal_places=12)
+    output_cost_cny: Decimal | None = Field(default=None, ge=0, max_digits=24, decimal_places=12)
+    total_cost_cny: Decimal | None = Field(default=None, ge=0, max_digits=24, decimal_places=12)
+    free_cost_cny: Decimal = Field(default=Decimal("0"), ge=0, max_digits=24, decimal_places=12)
+    paid_cost_cny: Decimal = Field(default=Decimal("0"), ge=0, max_digits=24, decimal_places=12)
+    billing_status: str | None = Field(default=None, max_length=32)
+
+    @field_validator(
+        "request_id",
+        "requested_model",
+        "upstream_model",
+        "provider_name",
+        "protocol",
+        "purpose",
+        mode="before",
+    )
+    @classmethod
+    def normalize_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("user_id", "username", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return value
+
+
+class AiModelUsagePushOutSchema(BaseModel):
+    accepted: bool
+    duplicate: bool

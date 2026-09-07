@@ -43,6 +43,25 @@ const AuthAPI = {
     });
   },
 
+  getCloudConfigStatus() {
+    return request<ApiResponse<CloudConfigStatus>>({
+      url: `${API_PATH}/cloud-config/status`,
+      method: "get",
+      headers: { Authorization: "no-auth" },
+      showErrorMessage: false,
+    });
+  },
+
+  bindCloudConfig(body: CloudConfigBindForm) {
+    return request<ApiResponse<{ configured: boolean }>>({
+      url: `${API_PATH}/cloud-config`,
+      method: "post",
+      headers: { Authorization: "no-auth" },
+      data: body,
+      showSuccessMessage: false,
+    });
+  },
+
   logout() {
     return request<ApiResponse>({
       url: `${API_PATH}/logout`,
@@ -79,6 +98,19 @@ export interface LoginFormData {
   login_type?: string;
   captcha_key?: string;
   captcha?: string;
+}
+
+export interface CloudConfigStatus {
+  available: boolean;
+  configured: boolean;
+  source?: "database" | "environment" | null;
+}
+
+export interface CloudConfigBindForm {
+  admin_username: string;
+  admin_password: string;
+  instance_id: number;
+  service_credential: string;
 }
 
 /** Login CAPTCHA challenge. */

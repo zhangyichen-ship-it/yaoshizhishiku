@@ -1,11 +1,18 @@
 <template>
-  <section class="home-command-hero" aria-label="当前账号和系统状态">
+  <section class="home-command-hero" aria-label="知识库工作台概览">
+    <div class="hero-grid-mark" aria-hidden="true">
+      <span class="hero-grid-mark__label">KB / 01</span>
+      <span class="hero-grid-mark__ring hero-grid-mark__ring--large"></span>
+      <span class="hero-grid-mark__ring hero-grid-mark__ring--small"></span>
+    </div>
+
     <div class="hero-copy">
       <div class="hero-kicker">
+        <span class="hero-kicker__index">KNOWLEDGE OPERATIONS</span>
         <span class="signal-dot"></span>
-        系统运营台
+        已连接
       </div>
-      <h1>{{ bannerTitle }}</h1>
+      <h1>{{ bannerTitle }}<span class="hero-title-mark" aria-hidden="true">/</span></h1>
       <p>{{ bannerSubtitle }}</p>
 
       <div class="operator-card">
@@ -15,16 +22,19 @@
         </div>
         <div class="operator-meta">
           <strong>{{ currentUser.name }}</strong>
-          <span>{{ currentUser.description }}</span>
+          <span>@{{ currentUser.username }} · {{ currentUser.description }}</span>
         </div>
-        <div class="operator-login">最近登录：{{ currentUser.last_login || "暂无记录" }}</div>
+        <div class="operator-login">
+          <span>最近进入</span>
+          <strong>{{ currentUser.last_login || "暂无记录" }}</strong>
+        </div>
       </div>
     </div>
 
     <div class="hero-status-panel" aria-label="当前系统状态">
       <div class="status-panel-head">
-        <span class="panel-dot"></span>
-        当前状态
+        <span class="status-panel-head__title"><span class="panel-dot"></span>工作台信号</span>
+        <span class="status-panel-head__code">LIVE / SESSION</span>
       </div>
       <div class="hero-status-grid">
         <article v-for="item in statusCards" :key="item.label" class="status-chip">
@@ -46,7 +56,6 @@ import { computed } from "vue";
 import { UserFilled } from "@element-plus/icons-vue";
 import { MenuTypeEnum } from "@/enums/system/menu.enum";
 import { useUserStore } from "@stores";
-import { greetings } from "@utils";
 
 defineOptions({ name: "HomeBanner" });
 
@@ -67,7 +76,6 @@ const fallbackUser: HomeUser = {
 };
 
 const userStore = useUserStore();
-const timefix = greetings();
 
 const currentUser = computed<HomeUser>(() => {
   const userInfo = userStore.basicInfo;
@@ -81,9 +89,20 @@ const currentUser = computed<HomeUser>(() => {
   };
 });
 
-const bannerTitle = computed(() => `${currentUser.value.name}（${currentUser.value.username}）${timefix}`);
-const bannerSubtitle = "查看当前账号可用范围、授权状态和后台运行边界。";
-const rootMenuCount = computed(() => userStore.getRouteList.filter((menu) => menu.type !== MenuTypeEnum.BUTTON).length);
+const bannerTitle = "知识库工作台";
+const bannerSubtitle = computed(
+  () => `${currentUser.value.name}，从知识库、文档、检索和员工权限开始今天的维护。`
+);
+const knowledgeMenuCount = computed(() => {
+  const knowledgeRoot = userStore.getRouteList.find(
+    (menu) => menu.route_name === "AI" || menu.route_path === "/ai"
+  );
+  return (
+    knowledgeRoot?.children?.filter(
+      (menu) => menu.type !== MenuTypeEnum.BUTTON && !menu.hidden
+    ).length ?? 0
+  );
+});
 const permissionCount = computed(() => userStore.getPerms.length);
 
 const statusCards = computed(() => [
@@ -94,8 +113,8 @@ const statusCards = computed(() => [
     tone: userStore.isLogin ? "cyan" : "amber",
   },
   {
-    label: "可用模块",
-    value: `${rootMenuCount.value} 个`,
+    label: "知识库入口",
+    value: `${knowledgeMenuCount.value} 个`,
     icon: "ri:layout-grid-line",
     tone: "blue",
   },
@@ -207,9 +226,9 @@ p {
 .hero-status-panel {
   align-self: center;
   padding: 14px;
+  background: var(--el-fill-color-lighter);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
-  background: var(--el-fill-color-lighter);
 }
 
 .status-panel-head {
@@ -278,7 +297,7 @@ p {
   color: var(--el-text-color-secondary);
 }
 
-@media (max-width: 900px) {
+@media (width <= 900px) {
   .home-command-hero {
     grid-template-columns: 1fr;
     padding: 24px;
@@ -289,7 +308,7 @@ p {
   }
 }
 
-@media (max-width: 560px) {
+@media (width <= 560px) {
   .home-command-hero {
     padding: 20px;
   }
@@ -299,13 +318,304 @@ p {
   }
 
   .operator-card {
-    align-items: flex-start;
     flex-wrap: wrap;
+    align-items: flex-start;
   }
 
   .operator-login {
     flex-basis: 100%;
     margin-left: 60px;
+  }
+}
+</style>
+
+<style scoped lang="scss">
+.home-command-hero {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.72fr);
+  gap: 40px;
+  min-height: 252px;
+  padding: 32px;
+  overflow: hidden;
+  color: #f3fbf8;
+  background:
+    radial-gradient(circle at 78% 18%, rgb(45 125 114 / 24%), transparent 36%),
+    linear-gradient(
+      120deg,
+      var(--fa-color-sidebar) 0%,
+      color-mix(in srgb, var(--fa-color-sidebar) 72%, var(--fa-color-accent)) 100%
+    );
+  border-color: color-mix(in srgb, var(--fa-color-accent) 34%, var(--fa-color-sidebar));
+  border-radius: 10px;
+}
+
+.home-command-hero::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    repeating-linear-gradient(90deg, rgb(255 255 255 / 5%) 0 1px, transparent 1px 68px),
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 4%) 0 1px, transparent 1px 68px);
+  opacity: 0.6;
+  mask-image: linear-gradient(90deg, black 0%, transparent 82%);
+}
+
+.home-command-hero::after {
+  position: absolute;
+  right: 22%;
+  bottom: -170px;
+  width: 420px;
+  height: 420px;
+  pointer-events: none;
+  content: "";
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 36px rgb(255 255 255 / 3%), 0 0 0 72px rgb(255 255 255 / 2%);
+}
+
+.hero-grid-mark {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.hero-grid-mark__label {
+  position: absolute;
+  bottom: 28px;
+  left: 32px;
+  font-family: var(--fa-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  color: rgb(243 251 248 / 86%);
+}
+
+.hero-grid-mark__ring {
+  position: absolute;
+  right: 22%;
+  bottom: -170px;
+  display: block;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 50%;
+}
+
+.hero-grid-mark__ring--large {
+  width: 420px;
+  height: 420px;
+  box-shadow: 0 0 0 36px rgb(255 255 255 / 3%), 0 0 0 72px rgb(255 255 255 / 2%);
+}
+
+.hero-grid-mark__ring--small {
+  right: calc(22% + 58px);
+  bottom: -112px;
+  width: 260px;
+  height: 260px;
+  border-color: rgb(132 231 179 / 15%);
+}
+
+.hero-copy,
+.hero-status-panel {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-kicker {
+  gap: 10px;
+  margin-bottom: 16px;
+  font-family: var(--fa-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: #a8efe0;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.hero-kicker__index {
+  color: rgb(243 251 248 / 76%);
+}
+
+.signal-dot,
+.panel-dot {
+  width: 7px;
+  height: 7px;
+  background: #84e7b3;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgb(132 231 179 / 12%);
+}
+
+.hero-copy h1 {
+  margin: 0;
+  font-size: clamp(30px, 4vw, 46px);
+  font-weight: 760;
+  line-height: 1.12;
+  color: #fff;
+  letter-spacing: -0.04em;
+}
+
+.hero-title-mark {
+  margin-left: 5px;
+  color: #84e7b3;
+}
+
+.hero-copy > p {
+  max-width: 620px;
+  margin: 14px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgb(243 251 248 / 72%);
+}
+
+.operator-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-top: 20px;
+  margin-top: 28px;
+  border-top: 1px solid rgb(255 255 255 / 12%);
+}
+
+.operator-avatar--fallback {
+  color: #a8efe0;
+  background: rgb(132 231 179 / 12%);
+  border-color: rgb(132 231 179 / 25%);
+}
+
+.operator-meta {
+  gap: 4px;
+}
+
+.operator-meta strong {
+  color: #fff;
+}
+
+.operator-meta span,
+.operator-login span {
+  margin-top: 0;
+  font-size: 12px;
+  color: rgb(243 251 248 / 60%);
+}
+
+.operator-login {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  text-align: right;
+}
+
+.operator-login strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgb(243 251 248 / 86%);
+}
+
+.hero-status-panel {
+  align-self: stretch;
+  padding: 16px;
+  background: rgb(7 19 24 / 30%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 8px;
+}
+
+.status-panel-head {
+  justify-content: space-between;
+  margin-bottom: 16px;
+  color: #fff;
+}
+
+.status-panel-head__title {
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-panel-head__code {
+  font-family: var(--fa-font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  color: rgb(243 251 248 / 50%);
+  letter-spacing: 0.08em;
+}
+
+.hero-status-grid {
+  gap: 8px;
+}
+
+.status-chip {
+  min-height: 50px;
+  padding: 8px 10px;
+  background: rgb(255 255 255 / 7%);
+  border-color: rgb(255 255 255 / 12%);
+  border-radius: 6px;
+}
+
+.status-icon--cyan,
+.status-icon--green {
+  color: #84e7b3;
+  background: rgb(132 231 179 / 13%);
+}
+
+.status-icon--blue {
+  color: #9ad8ff;
+  background: rgb(154 216 255 / 13%);
+}
+
+.status-icon--amber {
+  color: #f4ca76;
+  background: rgb(244 202 118 / 13%);
+}
+
+.status-chip strong {
+  color: #fff;
+}
+
+.status-chip span:last-child {
+  color: rgb(243 251 248 / 58%);
+}
+
+@media (width <= 900px) {
+  .home-command-hero {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .hero-status-panel {
+    align-self: auto;
+  }
+}
+
+@media (width <= 560px) {
+  .home-command-hero {
+    padding: 22px;
+  }
+
+  .hero-copy h1 {
+    font-size: 32px;
+  }
+
+  .hero-grid-mark__label {
+    bottom: 22px;
+    left: 22px;
+  }
+
+  .operator-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .operator-login {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .status-panel-head__code {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-command-hero::after {
+    box-shadow: none;
   }
 }
 </style>

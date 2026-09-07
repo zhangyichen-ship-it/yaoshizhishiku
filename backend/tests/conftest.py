@@ -29,7 +29,6 @@ _TEST_DB_PATH = tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
 os.environ["DATABASE_TYPE"] = "sqlite"
 os.environ["DATABASE_NAME"] = _TEST_DB_PATH
 os.environ["REDIS_ENABLE"] = "true"
-os.environ["AI_ENABLE"] = "false"
 os.environ["SECRET_KEY"] = "test-secret-key-for-backend-tests-32-chars"
 os.environ["POOL_SIZE"] = "1"
 os.environ["MAX_OVERFLOW"] = "1"
@@ -235,17 +234,10 @@ async def _test_lifespan(app) -> AsyncGenerator[Any, None]:
 
 @asynccontextmanager
 async def _ai_test_lifespan(app) -> AsyncGenerator[Any, None]:
-    """Start an AI-enabled test application without changing the core fixture."""
-    previous_value = os.environ.get("AI_ENABLE")
-    os.environ["AI_ENABLE"] = "true"
-    try:
-        await _initialize_test_app(app)
-        yield
-    finally:
-        if previous_value is None:
-            os.environ.pop("AI_ENABLE", None)
-        else:
-            os.environ["AI_ENABLE"] = previous_value
+    """Start the built-in AI test application."""
+    await _initialize_test_app(app)
+
+    yield
 
 
 from main import create_app
@@ -253,9 +245,7 @@ from main import create_app
 _app = create_app()
 _app.router.lifespan_context = _test_lifespan
 
-os.environ["AI_ENABLE"] = "true"
 _ai_app = create_app()
-os.environ["AI_ENABLE"] = "false"
 _ai_app.router.lifespan_context = _ai_test_lifespan
 
 # ============================================================

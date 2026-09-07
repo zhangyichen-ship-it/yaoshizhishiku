@@ -274,11 +274,15 @@ const menuList = computed(() => {
 /** 收集所有含子菜单的菜单项 index，用于强制全部展开（消除下拉折叠行为） */
 const allSubmenuIndexes = computed(() => {
   const indexes: string[] = [];
-  const collect = (items: AppRouteRecord[]) => {
+  const collect = (items: AppRouteRecord[], level = 0) => {
     items.forEach((item) => {
       if (item.children && item.children.length > 0) {
-        indexes.push(item.path || item.meta.title);
-        collect(item.children);
+        // FaSidebarSubmenu 在一级分组下会展平带 group 的父项，
+        // 该父项不会生成 ElSubMenu，不能交给 ElMenu.open。
+        if (!(level === 0 && item.meta?.group)) {
+          indexes.push(item.path || item.meta.title);
+        }
+        collect(item.children, level + 1);
       }
     });
   };

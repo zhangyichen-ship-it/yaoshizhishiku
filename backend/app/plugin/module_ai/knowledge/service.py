@@ -16,7 +16,7 @@ from app.core.logger import logger
 from app.plugin.module_ai.config import settings
 
 from .bm25_index import BM25KnowledgeIndex, get_cached_bm25_index
-from .chroma_store import ChromaKnowledgeStore, get_cached_chroma_store
+from .chroma_store import ChromaKnowledgeStore, get_cached_chroma_store, get_embedding_collection_name
 from .crud import KnowledgeBaseCRUD, KnowledgeChunkCRUD, KnowledgeDocumentCRUD
 from .embedding import EmbeddingClient, get_cached_embedding_client
 from .extractors import extract_text
@@ -226,6 +226,25 @@ class KnowledgeService:
             )
         return self._document_output(document)
 
+    async def reindex_document(self, *, document_id: int, background_tasks: Any) -> KnowledgeDocumentOutSchema:
+        document_crud = KnowledgeDocumentCRUD(self.auth)
+        document = await document_crud.get_or_404(id=document_id, msg="knowledge document not found")
+        if document.index_status in {"pending", "indexing"}:
+            return self._document_output(document)
+
+        document = await document_crud.update_status(
+            document_id,
+            parse_status="pending",
+            index_status="indexing",
+            error_message=None,
+        )
+        background_tasks.add_task(
+            index_document_in_background,
+            document.id,
+            getattr(getattr(self.auth, "user", None), "id", None),
+        )
+        return self._document_output(document)
+
     async def index_document(self, document_id: int) -> KnowledgeDocumentOutSchema:
         document = await KnowledgeDocumentCRUD(self.auth).get_or_404(id=document_id, msg="knowledge document not found")
         if not document.file_path:
@@ -253,7 +272,10 @@ class KnowledgeService:
             retrieval_mode = settings.RETRIEVAL_MODE
             embeddings: list[list[float]] | None = None
             metadatas: list[dict[str, int | str]] | None = None
+            old_chroma_ids: list[str] = []
             if retrieval_mode in ("vector", "hybrid"):
+                old_chunks = await KnowledgeChunkCRUD(self.auth).list_by_document(document.id)
+                old_chroma_ids = [chunk.chroma_id for chunk in old_chunks if chunk.chroma_id]
                 embeddings = await self._get_embedding_client().embed_texts(chunks)
                 metadatas = [
                     build_chroma_metadata(
@@ -266,6 +288,9 @@ class KnowledgeService:
                     for index in range(len(chunks))
                 ]
 
+                # ponytail: write the new version before replacing DB chunks; a failed upsert keeps the old index usable.
+                await self._get_store().upsert_chunks(ids=chroma_ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
+
             chunk_models = await KnowledgeChunkCRUD(self.auth).replace_chunks(
                 knowledge_base_id=document.knowledge_base_id,
                 document_id=document.id,
@@ -274,8 +299,7 @@ class KnowledgeService:
             )
 
             if embeddings is not None and metadatas is not None:
-                await self._get_store().delete_document(document.id)
-                await self._get_store().upsert_chunks(ids=chroma_ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
+                await self._get_store().delete_ids(old_chroma_ids)
 
             if retrieval_mode in ("hybrid", "bm25"):
                 bm25_chunks = [
@@ -479,7 +503,7 @@ class KnowledgeService:
 
     def _get_store(self) -> ChromaKnowledgeStore:
         if self.store is None:
-            self.store = get_cached_chroma_store()
+            self.store = get_cached_chroma_store(collection_name=get_embedding_collection_name())
         return self.store
 
     def _get_embedding_client(self) -> EmbeddingClient:

@@ -404,6 +404,7 @@ export const useUserStore = defineStore(
       storage: localStorage,
       // accessToken/refreshToken 由 Auth 类按 rememberMe 分别存入 localStorage/sessionStorage，
       // 这里不重复持久化，否则 rememberMe=false 时 token 仍会残留在 localStorage["user"] 里。
+      // routeList/hasGetRoute 属于服务端权限状态，启动时必须重新获取。
       pick: [
         "language",
         "isLogin",
@@ -411,9 +412,7 @@ export const useUserStore = defineStore(
         "lockPassword",
         "info",
         "searchHistory",
-        "routeList",
         "prems",
-        "hasGetRoute",
         "rememberMe",
       ],
     },

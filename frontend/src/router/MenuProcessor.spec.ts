@@ -43,4 +43,42 @@ describe("backendMenusToAppRoutes", () => {
     expect(JSON.stringify(routes)).not.toContain("UserCreateButton");
     expect(JSON.stringify(routes)).not.toContain("module_system/user/create");
   });
+
+  it("does not promote descendants from a flat persisted menu list", () => {
+    const routes = backendMenusToAppRoutes([
+      {
+        id: 1,
+        name: "AI 知识库",
+        type: 1,
+        route_name: "AI",
+        route_path: "/ai",
+        title: "AI 知识库",
+        children: [
+          {
+            id: 2,
+            name: "知识库管理",
+            type: 2,
+            parent_id: 1,
+            route_name: "Knowledge",
+            route_path: "knowledge",
+            component_path: "module_ai/knowledge/index",
+            title: "知识库管理",
+          },
+        ],
+      },
+      {
+        id: 2,
+        name: "知识库管理",
+        type: 2,
+        parent_id: 1,
+        route_name: "Knowledge",
+        route_path: "knowledge",
+        component_path: "module_ai/knowledge/index",
+        title: "知识库管理",
+      },
+    ] as any);
+
+    expect(routes.map((route) => route.name)).toEqual(["AI"]);
+    expect(routes[0]?.children?.map((route) => route.name)).toEqual(["Knowledge"]);
+  });
 });

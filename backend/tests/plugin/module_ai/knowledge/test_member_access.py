@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -52,17 +53,37 @@ async def test_bootstrap_assigns_only_the_configured_customer_owner(tmp_path, mo
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'member-bootstrap.db'}")
     async with engine.begin() as connection:
-        await connection.run_sync(KbMemberModel.__table__.create)
+        for table in (
+            UserModel.__table__,
+            KnowledgeBaseModel.__table__,
+            KbMemberModel.__table__,
+            KnowledgeBaseAccessModel.__table__,
+        ):
+            await connection.run_sync(table.create)
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as db:
         monkeypatch.setattr(member_service_module.settings, "KB_BOOTSTRAP_CLOUD_USER_ID", 101)
         service = CustomerMemberService(SimpleNamespace(db=db))
         owner = await service.sync_member(
-            {"user_id": 101, "username": "owner", "name": "Owner", "status": 0, "knowledge_enabled": True}
+            {
+                "user_id": 101,
+                "username": "owner",
+                "name": "Owner",
+                "status": 0,
+                "knowledge_enabled": True,
+                "knowledge_base_keys": [],
+            }
         )
         employee = await service.sync_member(
-            {"user_id": 102, "username": "employee", "name": "Employee", "status": 0, "knowledge_enabled": True}
+            {
+                "user_id": 102,
+                "username": "employee",
+                "name": "Employee",
+                "status": 0,
+                "knowledge_enabled": True,
+                "knowledge_base_keys": [],
+            }
         )
 
         assert owner.local_role == "owner"
@@ -124,6 +145,113 @@ async def test_cloud_embedding_config_uses_instance_endpoint_without_provider_ke
 
 
 @pytest.mark.asyncio
+async def test_cloud_member_client_retries_transient_failures(monkeypatch) -> None:
+    from app.plugin.module_ai.knowledge import member_client as member_client_module
+
+    member_client_module._circuit_states.clear()
+    monkeypatch.setattr(member_client_module.settings, "KB_CONTROL_PLANE_RETRY_COUNT", 2)
+    monkeypatch.setattr(member_client_module.settings, "KB_CONTROL_PLANE_RETRY_BACKOFF", 0.0)
+    config = member_client_module.CloudControlPlaneConfig(
+        api_url="https://cloud.example/api",
+        instance_id=7,
+        service_credential="instance-secret",
+        timeout=1.0,
+        source="test",
+    )
+    calls = 0
+
+    class FakeResponse:
+        def __init__(self, status_code: int):
+            self.status_code = status_code
+            self.is_success = status_code < 400
+
+        def json(self):
+            return {"success": True, "data": []}
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def request(self, *_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            return FakeResponse(503 if calls < 3 else 200)
+
+    monkeypatch.setattr(member_client_module.httpx, "AsyncClient", FakeClient)
+
+    assert await member_client_module.CloudMemberClient(config=config).list_members() == []
+    assert calls == 3
+
+
+@pytest.mark.asyncio
+async def test_cloud_member_client_opens_and_recovers_circuit(monkeypatch) -> None:
+    from app.plugin.module_ai.knowledge import member_client as member_client_module
+
+    member_client_module._circuit_states.clear()
+    monkeypatch.setattr(member_client_module.settings, "KB_CONTROL_PLANE_RETRY_COUNT", 0)
+    monkeypatch.setattr(member_client_module.settings, "KB_CONTROL_PLANE_CIRCUIT_FAILURE_THRESHOLD", 1)
+    monkeypatch.setattr(member_client_module.settings, "KB_CONTROL_PLANE_CIRCUIT_RECOVERY_SECONDS", 60.0)
+    config = member_client_module.CloudControlPlaneConfig(
+        api_url="https://cloud.example/api",
+        instance_id=8,
+        service_credential="instance-secret",
+        timeout=1.0,
+        source="test",
+    )
+    calls = 0
+    recovered = False
+
+    class FakeResponse:
+        status_code = 200
+        is_success = True
+
+        def json(self):
+            return {"success": True, "data": []}
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def request(self, *_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if not recovered:
+                response = FakeResponse()
+                response.status_code = 503
+                response.is_success = False
+                return response
+            return FakeResponse()
+
+    monkeypatch.setattr(member_client_module.httpx, "AsyncClient", FakeClient)
+    client = member_client_module.CloudMemberClient(config=config)
+
+    with pytest.raises(CustomException) as first_error:
+        await client.list_members()
+    assert first_error.value.status_code == 503
+    with pytest.raises(CustomException) as circuit_error:
+        await client.list_members()
+    assert circuit_error.value.status_code == 503
+    assert calls == 1
+
+    member_client_module._circuit_states[(config.api_url, config.instance_id)].opened_until = time.monotonic() - 1
+    recovered = True
+    assert await client.list_members() == []
+    assert calls == 2
+
+
+@pytest.mark.asyncio
 async def test_acl_enforces_cloud_product_grant_and_replaces_access(tmp_path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'member-access.db'}")
     async with engine.begin() as connection:
@@ -166,12 +294,36 @@ async def test_acl_enforces_cloud_product_grant_and_replaces_access(tmp_path) ->
                 is_superuser=False,
             ),
         )
-        service = CustomerMemberService(auth)
+        class CloudAccessClient:
+            def __init__(self):
+                self.calls = []
+
+            async def set_member_access(self, user_id, *, resources, knowledge_base_keys):
+                self.calls.append((user_id, resources, knowledge_base_keys))
+                return {"user_id": user_id, "knowledge_base_keys": knowledge_base_keys}
+
+            async def get_member_access(self, user_id):
+                return {"user_id": user_id, "knowledge_base_keys": [first.uuid]}
+
+        cloud_client = CloudAccessClient()
+        service = CustomerMemberService(auth, client=cloud_client)
 
         assert await service.accessible_knowledge_base_ids(None) == [first.id]
         with pytest.raises(CustomException) as error:
             await service.accessible_knowledge_base_ids([second.id])
         assert error.value.status_code == 403
+
+        class FailingCloudClient:
+            async def set_member_access(self, *_args, **_kwargs):
+                raise CustomException(msg="cloud unavailable", status_code=503)
+
+        with pytest.raises(CustomException) as error:
+            await CustomerMemberService(auth, client=FailingCloudClient()).set_access(
+                member.cloud_user_id,
+                KnowledgeBaseAccessUpdateSchema(knowledge_base_ids=[second.id]),
+            )
+        assert error.value.status_code == 503
+        assert await service.accessible_knowledge_base_ids(None) == [first.id]
 
         await service.set_access(
             member.cloud_user_id,
@@ -180,6 +332,9 @@ async def test_acl_enforces_cloud_product_grant_and_replaces_access(tmp_path) ->
         await db.commit()
 
         assert await service.accessible_knowledge_base_ids(None) == [second.id]
+        assert cloud_client.calls[-1][0] == member.cloud_user_id
+        assert {item["key"] for item in cloud_client.calls[-1][1]} == {first.uuid, second.uuid}
+        assert cloud_client.calls[-1][2] == [second.uuid]
         grants = (
             await db.execute(
                 select(KnowledgeBaseAccessModel).where(

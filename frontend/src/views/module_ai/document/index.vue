@@ -52,7 +52,15 @@
         <ElTableColumn prop="created_time" label="创建时间" width="180" show-overflow-tooltip />
         <ElTableColumn label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <ElButton link type="primary" @click="reindex(row)">重新索引</ElButton>
+            <ElButton
+              link
+              type="primary"
+              :loading="isReindexing(row)"
+              :disabled="isReindexing(row)"
+              @click="reindex(row)"
+            >
+              重新索引
+            </ElButton>
             <ElButton link type="danger" @click="remove(row)">删除</ElButton>
           </template>
         </ElTableColumn>
@@ -108,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from "element-plus";
 import { Refresh, Search, Upload } from "@element-plus/icons-vue";
 import { useRoute } from "vue-router";
@@ -127,6 +135,7 @@ const rows = ref<KnowledgeDocument[]>([]);
 const bases = ref<KnowledgeBase[]>([]);
 const total = ref(0);
 const uploadDialogVisible = ref(false);
+const reindexingIds = ref(new Set<number>());
 
 const query = reactive({
   page_no: 1,
@@ -138,23 +147,51 @@ const query = reactive({
 const uploadForm = reactive({
   knowledge_base_id: undefined as number | undefined,
 });
+const STATUS_REFRESH_DELAY = 1000;
+let statusRefreshTimer: number | undefined;
 
 const loadBases = async () => {
   const res = await KnowledgeAPI.optionselect();
   bases.value = (res.data?.data || []).filter((item) => item.id != null);
 };
 
-const loadData = async () => {
-  loading.value = true;
+const hasProcessingDocuments = () =>
+  rows.value.some(
+    (row) =>
+      row.parse_status === "pending" ||
+      row.index_status === "pending" ||
+      row.index_status === "indexing"
+  );
+
+const clearStatusRefresh = () => {
+  if (statusRefreshTimer === undefined) return;
+  window.clearTimeout(statusRefreshTimer);
+  statusRefreshTimer = undefined;
+};
+
+const scheduleStatusRefresh = () => {
+  if (statusRefreshTimer !== undefined || !hasProcessingDocuments()) return;
+  statusRefreshTimer = window.setTimeout(() => {
+    statusRefreshTimer = undefined;
+    void refreshDocumentList(false);
+  }, STATUS_REFRESH_DELAY);
+};
+
+const refreshDocumentList = async (showLoading: boolean) => {
+  clearStatusRefresh();
+  if (showLoading) loading.value = true;
   try {
     const res = await KnowledgeAPI.listDocument({ ...query });
     const data = res.data?.data;
     rows.value = data?.items || [];
     total.value = data?.total || 0;
   } finally {
-    loading.value = false;
+    if (showLoading) loading.value = false;
+    scheduleStatusRefresh();
   }
 };
+
+const loadData = () => refreshDocumentList(true);
 
 const resetQuery = () => {
   query.page_no = 1;
@@ -211,11 +248,21 @@ const uploadFile = async (options: UploadRequestOptions) => {
 };
 
 const reindex = async (row: KnowledgeDocument) => {
-  if (!row.id) return;
-  await KnowledgeAPI.reindexDocument(row.id);
-  ElMessage.success("已提交重建");
-  await loadData();
+  if (!row.id || isReindexing(row)) return;
+  reindexingIds.value.add(row.id);
+  try {
+    await KnowledgeAPI.reindexDocument(row.id);
+    ElMessage.success("已提交重建，后台处理中");
+    await refreshDocumentList(false);
+  } finally {
+    reindexingIds.value.delete(row.id);
+  }
 };
+
+const isReindexing = (row: KnowledgeDocument) =>
+  row.index_status === "pending" ||
+  row.index_status === "indexing" ||
+  (row.id != null && reindexingIds.value.has(row.id));
 
 const remove = async (row: KnowledgeDocument) => {
   if (!row.id) return;
@@ -248,6 +295,8 @@ onMounted(async () => {
   }
   await loadData();
 });
+
+onBeforeUnmount(clearStatusRefresh);
 </script>
 
 <style scoped>

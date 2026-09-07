@@ -88,12 +88,15 @@ async def test_embedding_client_reports_empty_provider_data(monkeypatch) -> None
         await embedding.OpenAICompatibleEmbeddingClient().embed_texts(["hello"])
 
 
-async def test_embedding_client_reports_vector_count_mismatch(monkeypatch) -> None:
+async def test_embedding_client_sends_one_input_per_request(monkeypatch) -> None:
     from app.plugin.module_ai.knowledge import embedding
+
+    calls: list[dict[str, object]] = []
 
     class FakeEmbeddings:
         async def create(self, **kwargs):
-            return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
+            calls.append(kwargs)
+            return SimpleNamespace(data=[SimpleNamespace(embedding=[float(len(calls)), 0.2])])
 
     class FakeClient:
         embeddings = FakeEmbeddings()
@@ -103,5 +106,32 @@ async def test_embedding_client_reports_vector_count_mismatch(monkeypatch) -> No
     monkeypatch.setattr(embedding.settings, "OPENAI_EMBEDDING_MODEL", "embed-test")
     monkeypatch.setattr(embedding, "AsyncOpenAI", lambda **kwargs: FakeClient())
 
-    with pytest.raises(ValueError, match="Embedding service returned 1 vectors for 2 texts"):
+    assert await embedding.OpenAICompatibleEmbeddingClient().embed_texts(["hello", "world"]) == [[1.0, 0.2], [2.0, 0.2]]
+    assert calls == [
+        {"model": "embed-test", "input": ["hello"]},
+        {"model": "embed-test", "input": ["world"]},
+    ]
+
+
+async def test_embedding_client_reports_vector_count_mismatch(monkeypatch) -> None:
+    from app.plugin.module_ai.knowledge import embedding
+
+    class FakeEmbeddings:
+        async def create(self, **kwargs):
+            return SimpleNamespace(
+                data=[
+                    SimpleNamespace(embedding=[0.1, 0.2]),
+                    SimpleNamespace(embedding=[0.3, 0.4]),
+                ]
+            )
+
+    class FakeClient:
+        embeddings = FakeEmbeddings()
+
+    monkeypatch.setattr(embedding.settings, "OPENAI_API_KEY", "test_key")
+    monkeypatch.setattr(embedding.settings, "OPENAI_BASE_URL", "https://example.test/v1")
+    monkeypatch.setattr(embedding.settings, "OPENAI_EMBEDDING_MODEL", "embed-test")
+    monkeypatch.setattr(embedding, "AsyncOpenAI", lambda **kwargs: FakeClient())
+
+    with pytest.raises(ValueError, match="Embedding service returned 2 vectors for 1 texts"):
         await embedding.OpenAICompatibleEmbeddingClient().embed_texts(["hello", "world"])

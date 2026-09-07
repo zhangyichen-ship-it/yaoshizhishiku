@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.base_model import ModelMixin, UserMixin
@@ -87,6 +88,17 @@ class KnowledgeChunkModel(ModelMixin, UserMixin):
     document: Mapped[KnowledgeDocumentModel] = relationship("KnowledgeDocumentModel", back_populates="chunks")
 
 
+class AiControlPlaneConfigModel(ModelMixin):
+    """Encrypted customer-side binding to the cloud member service."""
+
+    __tablename__ = "ai_control_plane_config"
+    __table_args__ = {"comment": "AI 云面板成员服务绑定配置"}
+
+    api_url: Mapped[str] = mapped_column(String(500), nullable=False, comment="云面板成员服务地址")
+    instance_id: Mapped[int] = mapped_column(Integer, nullable=False, comment="客户知识库实例ID")
+    encrypted_service_credential: Mapped[str] = mapped_column(Text, nullable=False, comment="加密后的云面板服务凭证")
+
+
 class KbMemberModel(ModelMixin):
     """Minimal local projection of a cloud employee.
 
@@ -160,3 +172,42 @@ class KnowledgeBaseAccessModel(ModelMixin):
 
     member: Mapped[KbMemberModel] = relationship("KbMemberModel", back_populates="access_grants")
     knowledge_base: Mapped[KnowledgeBaseModel] = relationship("KnowledgeBaseModel", back_populates="access_grants")
+
+
+class AiModelUsageModel(ModelMixin):
+    """Non-sensitive model-usage projection received from the cloud panel."""
+
+    __tablename__ = "ai_model_usage"
+    __table_args__ = (
+        UniqueConstraint("source_request_id", name="uq_ai_model_usage_source_request"),
+        {"comment": "AI 模型 Token 用量投影"},
+    )
+
+    cloud_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True, comment="云端用户ID")
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True, comment="云端用户名")
+    source_request_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="云面板请求号")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True, comment="模型请求发生时间")
+    requested_model: Mapped[str] = mapped_column(String(255), nullable=False, index=True, comment="请求模型")
+    upstream_model: Mapped[str] = mapped_column(String(255), nullable=False, comment="上游模型")
+    provider_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="供应商")
+    protocol: Mapped[str] = mapped_column(String(32), nullable=False, comment="模型协议")
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'chat'"), comment="请求用途")
+    status: Mapped[int] = mapped_column(Integer, nullable=False, index=True, comment="请求状态")
+    response_code: Mapped[int] = mapped_column(Integer, nullable=False, comment="响应状态码")
+    is_stream: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("0"), comment="是否流式")
+    usage_reported: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("0"), comment="是否上报用量")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"), comment="输入 Token 数")
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"), comment="输出 Token 数")
+    cached_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="缓存命中输入 Token 数")
+    cache_creation_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="缓存写入输入 Token 数")
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"), comment="耗时毫秒")
+    input_cost_cny: Mapped[Decimal | None] = mapped_column(Numeric(24, 12), nullable=True, comment="输入费用，人民币元")
+    output_cost_cny: Mapped[Decimal | None] = mapped_column(Numeric(24, 12), nullable=True, comment="输出费用，人民币元")
+    total_cost_cny: Mapped[Decimal | None] = mapped_column(Numeric(24, 12), nullable=True, comment="总费用，人民币元")
+    free_cost_cny: Mapped[Decimal] = mapped_column(
+        Numeric(24, 12), nullable=False, server_default=text("0"), comment="免费额度消耗，人民币元"
+    )
+    paid_cost_cny: Mapped[Decimal] = mapped_column(
+        Numeric(24, 12), nullable=False, server_default=text("0"), comment="付费额度消耗，人民币元"
+    )
+    billing_status: Mapped[str | None] = mapped_column(String(32), nullable=True, comment="云端结算状态")

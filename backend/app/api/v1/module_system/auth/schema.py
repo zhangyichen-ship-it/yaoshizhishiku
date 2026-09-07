@@ -53,6 +53,15 @@ class CloudIdentityExchangeSchema(BaseModel):
     refresh_token: str = Field(..., min_length=20, max_length=256, description="云面板员工身份刷新凭证")
 
 
+class CloudControlPlaneBindSchema(BaseModel):
+    """Local administrator binding form for the customer KB."""
+
+    admin_username: str = Field(..., min_length=1, max_length=32, description="本地管理员账号")
+    admin_password: str = Field(..., min_length=1, max_length=128, description="本地管理员密码")
+    instance_id: int = Field(..., gt=0, description="客户知识库实例ID")
+    service_credential: str = Field(..., min_length=1, max_length=256, description="云面板服务凭证")
+
+
 class OAuthTicketSchema(BaseModel):
     """One-time OAuth browser callback ticket."""
 

@@ -1,126 +1,35 @@
-﻿from typing import Annotated, Any
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.response import ResponseSchema, SuccessResponse
-from app.core.base_params import PaginationQueryParam
 from app.core.base_schema import AuthSchema
-from app.core.dependencies import AuthPermission
+from app.core.dependencies import AuthPermission, db_getter
 from app.core.router_class import OperationLogRoute
 
+from ..knowledge.control_plane_service import authenticate_control_plane_push
+from ..knowledge.schema import AiModelUsagePushOutSchema, AiModelUsagePushSchema
+from ..knowledge.usage_service import record_model_usage
+from .model_config_service import (
+    apply_embedding_model_config,
+    get_model_config,
+    sync_embedding_model_config,
+    update_model_config,
+)
 from .schema import (
-    AiChatRequestSchema,
-    AiChatResponseSchema,
+    AiEmbeddingConfigPushSchema,
     AiEmbeddingSyncOutSchema,
     AiModelConfigOutSchema,
     AiModelConfigUpdateSchema,
-    ChatSessionCreateSchema,
-    ChatSessionQueryParam,
-    ChatSessionUpdateSchema,
 )
-from .service import ChatService
 
-ChatRouter = APIRouter(route_class=OperationLogRoute, prefix="/chat", tags=["AI管理", "AI对话"])
-
-
-@ChatRouter.get(
-    "/detail/{session_id}",
-    summary="获取会话详情",
-    response_model=ResponseSchema[dict[str, Any]],
-)
-async def get_session_detail_controller(
-    session_id: Annotated[str, Path(description="会话ID")],
-    auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:session:detail"]))],
-) -> JSONResponse:
-    service = ChatService(auth)
-    result = await service.get_session(session_id=session_id)
-    return SuccessResponse(data=result, msg="获取会话详情成功")
+ChatRouter = APIRouter(route_class=OperationLogRoute, prefix="/chat", tags=["AI管理", "模型配置"])
+_cloud_push_bearer = HTTPBearer(auto_error=False)
 
 
-@ChatRouter.get("/list",summary="查询会话列表",response_model=ResponseSchema[dict],)
-async def get_session_list_controller(
-    page: Annotated[PaginationQueryParam, Depends()],
-    search: Annotated[ChatSessionQueryParam, Depends()],
-    auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:session:query"]))],
-) -> JSONResponse:
-    service = ChatService(auth)
-    result_dict = await service.page(
-        page_no=page.page_no,
-        page_size=page.page_size,
-        search=search,
-        order_by=page.order_by,
-    )
-    return SuccessResponse(data=result_dict, msg="查询会话列表成功")
-
-
-@ChatRouter.post(
-    "/create",
-    summary="创建会话",
-    response_model=ResponseSchema[dict[str, Any]],
-)
-async def create_session_controller(
-    data: ChatSessionCreateSchema,
-    auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:chat:create"]))],
-) -> JSONResponse:
-    service = ChatService(auth)
-    result = await service.create(data=data)
-    return SuccessResponse(data=result, msg="创建会话成功")
-
-
-@ChatRouter.put(
-    "/update/{session_id}",
-    summary="更新会话",
-    response_model=ResponseSchema[None],
-)
-async def update_session_controller(
-    session_id: Annotated[str, Path(description="会话ID")],
-    data: ChatSessionUpdateSchema,
-    auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:chat:update"]))],
-) -> JSONResponse:
-    service = ChatService(auth)
-    await service.update(session_id=session_id, data=data)
-    return SuccessResponse(data=None, msg="更新会话成功")
-
-
-@ChatRouter.delete(
-    "/delete",
-    summary="删除会话",
-    response_model=ResponseSchema[None],
-)
-async def delete_session_controller(
-    session_ids: list[str],
-    auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:session:delete"]))],
-) -> JSONResponse:
-    service = ChatService(auth)
-    await service.delete(session_ids=session_ids)
-    return SuccessResponse(data=None, msg="删除会话成功")
-
-
-@ChatRouter.post(
-    "/ai-chat",
-    summary="AI 对话（非流式）",
-    response_model=ResponseSchema[AiChatResponseSchema],
-)
-async def ai_chat_controller(
-    data: AiChatRequestSchema,
-    auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:chat:ws"]))],
-) -> JSONResponse:
-    service = ChatService(auth)
-    result = await service.chat_non_stream(
-        message=data.message,
-        session_id=data.session_id,
-        knowledge_base_ids=data.knowledge_base_ids,
-    )
-    return SuccessResponse(
-        data=AiChatResponseSchema(
-            response=result["response"],
-            session_id=result["session_id"],
-            function_calls=result.get("function_calls"),
-            action=result.get("action"),
-        ),
-        msg="chat success",
-    )
 @ChatRouter.get(
     "/model-config",
     summary="AI model configuration",
@@ -129,7 +38,7 @@ async def ai_chat_controller(
 async def model_config_controller(
     auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:model_config:query"]))],
 ) -> JSONResponse:
-    result = await ChatService(auth).get_model_config()
+    result = await get_model_config(auth)
     return SuccessResponse(data=result, msg="query AI model configuration success")
 
 
@@ -141,8 +50,38 @@ async def model_config_controller(
 async def sync_embedding_model_config_controller(
     auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:model_config:update"]))],
 ) -> JSONResponse:
-    result = await ChatService(auth).sync_embedding_model_config()
+    result = await sync_embedding_model_config(auth)
     return SuccessResponse(data=result, msg="向量模型同步成功")
+
+
+@ChatRouter.post(
+    "/model-config/push-embedding",
+    summary="接收云面板推送的向量模型配置",
+    response_model=ResponseSchema[AiEmbeddingSyncOutSchema],
+)
+async def push_embedding_model_config_controller(
+    data: AiEmbeddingConfigPushSchema,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_cloud_push_bearer)],
+    db: Annotated[AsyncSession, Depends(db_getter)],
+) -> JSONResponse:
+    await authenticate_control_plane_push(db, credentials.credentials if credentials else None)
+    result = await apply_embedding_model_config(AuthSchema(db=db, check_data_scope=False), data)
+    return SuccessResponse(data=result, msg="云面板向量模型推送成功")
+
+
+@ChatRouter.post(
+    "/model-usage/push",
+    summary="接收云面板推送的模型用量",
+    response_model=ResponseSchema[AiModelUsagePushOutSchema],
+)
+async def push_model_usage_controller(
+    data: AiModelUsagePushSchema,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_cloud_push_bearer)],
+    db: Annotated[AsyncSession, Depends(db_getter)],
+) -> JSONResponse:
+    await authenticate_control_plane_push(db, credentials.credentials if credentials else None)
+    result = await record_model_usage(db, data)
+    return SuccessResponse(data=result, msg="云面板模型用量推送成功")
 
 
 @ChatRouter.put(
@@ -154,5 +93,5 @@ async def update_model_config_controller(
     data: AiModelConfigUpdateSchema,
     auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:model_config:update"]))],
 ) -> JSONResponse:
-    result = await ChatService(auth).update_model_config(data)
+    result = await update_model_config(auth, data)
     return SuccessResponse(data=result, msg="update AI model configuration success")

@@ -294,7 +294,7 @@ class LoginService:
         """Exchange cloud credentials and create only a local KB session."""
         from app.plugin.module_ai.knowledge.member_client import CloudMemberClient
 
-        client = CloudMemberClient()
+        client = CloudMemberClient(db=db)
         result = await client.login_member(identity.strip(), password)
         return await cls._create_cloud_session(
             request=request,
@@ -316,7 +316,7 @@ class LoginService:
         """Exchange a control-plane identity pair into a local KB session."""
         from app.plugin.module_ai.knowledge.member_client import CloudMemberClient
 
-        client = CloudMemberClient()
+        client = CloudMemberClient(db=db)
         cloud_identity_token = identity_token.strip()
         cloud_refresh_token = refresh_token.strip()
         if not cloud_identity_token or not cloud_refresh_token:
@@ -553,7 +553,7 @@ class LoginService:
             from app.plugin.module_ai.knowledge.member_client import CloudMemberClient
             from app.plugin.module_ai.knowledge.member_service import CustomerMemberService
 
-            client = CloudMemberClient()
+            client = CloudMemberClient(db=db)
             try:
                 remote_user = await client.introspect_identity(cloud_identity_token)
             except CustomException as exc:

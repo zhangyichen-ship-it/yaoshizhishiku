@@ -112,7 +112,10 @@ function mapMenuNode(item: MenuTable, depth = 0): AppRouteRecord {
 }
 
 export function backendMenusToAppRoutes(menus: MenuTable[]): AppRouteRecord[] {
-  const roots = menus.filter((m) => m.type !== MenuTypeEnum.BUTTON);
+  const menuIds = new Set(menus.map((m) => m.id));
+  const roots = menus.filter(
+    (m) => m.type !== MenuTypeEnum.BUTTON && (m.parent_id == null || !menuIds.has(m.parent_id))
+  );
   const normalized = normalizeMenuNestedPaths(roots);
   const mapped = normalized.map((m) => mapMenuNode(m, 0));
   return normalizeAppRouteChildPaths(mapped);

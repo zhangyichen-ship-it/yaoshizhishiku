@@ -2,7 +2,8 @@ from types import SimpleNamespace
 
 from app.plugin.module_ai.chat import model_config_service
 from app.plugin.module_ai.chat.model import AiEmbeddingConfigModel
-from app.plugin.module_ai.chat.schema import AiModelConfigUpdateSchema
+from app.plugin.module_ai.chat.schema import AiEmbeddingConfigPushSchema, AiModelConfigUpdateSchema
+from app.plugin.module_ai.config import JDCLOUD_API_BASE
 
 
 class _Result:
@@ -33,6 +34,16 @@ class _FakeDb:
 
     async def flush(self) -> None:
         return None
+
+
+def test_jdcloud_embedding_endpoint_is_accepted_for_sync_payload() -> None:
+    config = AiEmbeddingConfigPushSchema(
+        provider="openai",
+        model="embed-test",
+        base_url=f"{JDCLOUD_API_BASE}/",
+    )
+
+    assert config.base_url == JDCLOUD_API_BASE
 
 
 async def test_update_model_config_encrypts_key_and_keeps_vector_settings_read_only(monkeypatch) -> None:
@@ -89,6 +100,9 @@ async def test_sync_embedding_model_config_pulls_safe_settings_and_marks_reindex
     monkeypatch.setattr(model_config_service.settings, "LOCAL_EMBEDDING_MODEL", "old-embed")
 
     class FakeCloudMemberClient:
+        def __init__(self, **_kwargs):
+            pass
+
         async def get_embedding_config(self):
             return {
                 "provider": "openai",
@@ -106,6 +120,37 @@ async def test_sync_embedding_model_config_pulls_safe_settings_and_marks_reindex
     )
 
     assert result.config.embedding_model == "new-embed"
+    assert result.requires_reindex is True
+    assert db.embedding_record is not None
+    assert not hasattr(db.embedding_record, "encrypted_api_key")
+
+
+async def test_apply_embedding_model_config_accepts_cloud_push_without_api_key(monkeypatch) -> None:
+    import socket
+
+    monkeypatch.setattr(
+        "app.plugin.module_ai.config.socket.getaddrinfo",
+        lambda *_args, **_kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+    )
+    monkeypatch.setattr(model_config_service, "_active_config", None)
+    monkeypatch.setattr(model_config_service, "_active_embedding_config", None)
+    monkeypatch.setattr(model_config_service.settings, "OPENAI_API_KEY", "customer-key")
+    monkeypatch.setattr(model_config_service.settings, "OPENAI_BASE_URL", "https://customer.example/v1")
+    monkeypatch.setattr(model_config_service.settings, "OPENAI_MODEL", "customer-chat")
+    monkeypatch.setattr(model_config_service.settings, "EMBEDDING_PROVIDER", "local")
+    monkeypatch.setattr(model_config_service.settings, "LOCAL_EMBEDDING_MODEL", "old-embed")
+
+    db = _FakeDb()
+    result = await model_config_service.apply_embedding_model_config(
+        SimpleNamespace(db=db, user=None),
+        {
+            "provider": "openai",
+            "model": "pushed-embed",
+            "base_url": "https://cloud-embedding.example/v1",
+        },
+    )
+
+    assert result.config.embedding_model == "pushed-embed"
     assert result.requires_reindex is True
     assert db.embedding_record is not None
     assert not hasattr(db.embedding_record, "encrypted_api_key")

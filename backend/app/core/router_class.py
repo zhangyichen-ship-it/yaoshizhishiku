@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import Request, Response
 from fastapi.routing import APIRoute
-from starlette.background import BackgroundTask
+from starlette.background import BackgroundTasks
 
 from app.config.setting import settings
 from app.core.base_schema import AuthSchema
@@ -135,7 +135,12 @@ class OperationLogRoute(APIRoute):
                     "created_id": current_user_id,
                     "updated_id": current_user_id,
                 }
-                response.background = BackgroundTask(_write_operation_log_async, log_data)
+                existing_background = response.background
+                response_background = BackgroundTasks()
+                if existing_background is not None:
+                    response_background.add_task(existing_background)
+                response_background.add_task(_write_operation_log_async, log_data)
+                response.background = response_background
             except Exception:
                 logger.warning("操作日志采集异常: {}", request.url.path, exc_info=True)
             return response

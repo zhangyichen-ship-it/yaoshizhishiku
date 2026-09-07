@@ -165,9 +165,7 @@ def _get_schema_indexes(include_ai: bool) -> list[Index]:
         ]
 
     if include_ai and _AI_SCHEMA_INDEXES is None:
-        from app.plugin.module_ai.chat.model import ChatSessionModel
         from app.plugin.module_ai.knowledge.model import KnowledgeChunkModel, KnowledgeDocumentModel
-        from app.plugin.module_ai.memory.model import AiMemoryModel
 
         _AI_SCHEMA_INDEXES = [
             Index(
@@ -181,25 +179,6 @@ def _get_schema_indexes(include_ai: bool) -> list[Index]:
                 KnowledgeChunkModel.document_id,
                 KnowledgeChunkModel.is_deleted,
                 KnowledgeChunkModel.chunk_index,
-            ),
-            Index(
-                "ix_opt_ai_session_user_deleted_updated",
-                ChatSessionModel.user_id,
-                ChatSessionModel.is_deleted,
-                ChatSessionModel.updated_time,
-            ),
-            Index(
-                "ix_opt_ai_memory_user_active_deleted_priority",
-                AiMemoryModel.user_id,
-                AiMemoryModel.is_active,
-                AiMemoryModel.is_deleted,
-                AiMemoryModel.priority,
-            ),
-            Index(
-                "ix_opt_ai_memory_user_key_deleted",
-                AiMemoryModel.user_id,
-                AiMemoryModel.key,
-                AiMemoryModel.is_deleted,
             ),
         ]
 

@@ -1,4 +1,4 @@
-"""Runtime settings owned by the optional AI plugin."""
+"""Runtime settings owned by the built-in AI module."""
 
 import ipaddress
 import os
@@ -11,9 +11,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.config.path_conf import BASE_DIR, ENV_DIR
 
+JDCLOUD_API_BASE = "https://modelservice.jdcloud.com/v1"
+
 
 class AiPluginSettings(BaseSettings):
-    """Read AI and retrieval settings without adding them to the core backend."""
+    """Read AI and retrieval settings used by the core backend."""
 
     model_config = SettingsConfigDict(env_file_encoding="utf-8", extra="ignore", case_sensitive=True)
 
@@ -41,6 +43,10 @@ class AiPluginSettings(BaseSettings):
     KB_CONTROL_PLANE_INSTANCE_ID: int | None = None
     KB_CONTROL_PLANE_SERVICE_CREDENTIAL: str = ""
     KB_CONTROL_PLANE_TIMEOUT: float = 10.0
+    KB_CONTROL_PLANE_RETRY_COUNT: int = 2
+    KB_CONTROL_PLANE_RETRY_BACKOFF: float = 0.2
+    KB_CONTROL_PLANE_CIRCUIT_FAILURE_THRESHOLD: int = 3
+    KB_CONTROL_PLANE_CIRCUIT_RECOVERY_SECONDS: float = 15.0
     KB_BOOTSTRAP_CLOUD_USER_ID: int | None = None
 
 
@@ -72,6 +78,8 @@ def validate_model_base_url(value: str, *, resolve_dns: bool = True) -> str:
         ValueError: If the URL contains credentials or targets a blocked host.
     """
     normalized = value.strip().rstrip("/")
+    if normalized == JDCLOUD_API_BASE:
+        return normalized
     parsed = urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
         raise ValueError("API 地址必须是不包含认证信息的有效 http/https URL")

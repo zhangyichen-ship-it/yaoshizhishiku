@@ -93,6 +93,7 @@ class AuthSchema(BaseModel):
     db: AsyncSession | None = Field(default=None, description="数据库会话", exclude=True)
     redis: Any = Field(default=None, description="Redis连接", exclude=True)
     permission_map: dict[str, int] = Field(default_factory=dict, description="权限到菜单ID映射", exclude=True)
+    session_info: dict[str, Any] | None = Field(default=None, description="当前会话信息", exclude=True)
 
     def get_user(self) -> "UserModel | None":
         """类型化的用户访问方法。

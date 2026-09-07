@@ -10,11 +10,12 @@ from typing import Any
 
 from app.core.logger import logger
 from app.plugin.module_ai.knowledge.bm25_index import BM25KnowledgeIndex, get_cached_bm25_index
-from app.plugin.module_ai.knowledge.chroma_store import ChromaKnowledgeStore, get_cached_chroma_store
+from app.plugin.module_ai.knowledge.chroma_store import ChromaKnowledgeStore, get_cached_chroma_store, get_embedding_collection_name
 from app.plugin.module_ai.knowledge.embedding import EmbeddingClient, get_cached_embedding_client
 
+from ..knowledge.retriever import KeywordKnowledgeRetriever
+from ..knowledge.retriever import KnowledgeRetrievalDocument as RagDocument
 from .query_analyzer import QueryAnalyzer
-from .rag import KeywordKnowledgeRetriever, RagDocument
 
 
 class HybridKnowledgeRetriever:
@@ -285,7 +286,7 @@ class HybridKnowledgeRetriever:
     def _get_chroma_store(self) -> ChromaKnowledgeStore:
         """延迟加载ChromaDB存储"""
         if self.chroma_store is None:
-            self.chroma_store = get_cached_chroma_store()
+            self.chroma_store = get_cached_chroma_store(collection_name=get_embedding_collection_name())
         return self.chroma_store
 
     def _get_bm25_index(self) -> BM25KnowledgeIndex:

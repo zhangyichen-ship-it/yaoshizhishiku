@@ -30,7 +30,7 @@ export const UserAPI = {
 
   changeCurrentUserPassword(body: PasswordFormState) {
     return request<ApiResponse>({
-      url: `${API_PATH}/current/password/change`,
+      url: `${API_PATH}/password/change`,
       method: "put",
       data: body,
     });

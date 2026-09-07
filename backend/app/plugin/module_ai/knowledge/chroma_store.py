@@ -1,11 +1,32 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from functools import lru_cache
 from typing import Any
 
 import anyio
 
 from app.plugin.module_ai.config import settings
+
+
+def get_embedding_collection_name(embedding_config: object | None = None) -> str:
+    """Return a stable Chroma collection name for the active embedding model."""
+    if embedding_config is None:
+        from app.plugin.module_ai.chat.model_config_service import get_active_embedding_model_config
+
+        embedding_config = get_active_embedding_model_config()
+
+    base_name = (settings.CHROMA_COLLECTION_NAME or "knowledge_base").strip()
+    provider = str(getattr(embedding_config, "provider", "")).strip().lower()
+    model = str(getattr(embedding_config, "model", "")).strip()
+    base_url = str(getattr(embedding_config, "base_url", "")).strip().rstrip("/")
+    if provider == "local" and model == settings.LOCAL_EMBEDDING_MODEL.strip():
+        return base_name
+
+    safe_base_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", base_name).strip("-_") or "knowledge_base"
+    fingerprint = hashlib.sha256(f"{provider}\0{base_url}\0{model}".encode()).hexdigest()[:12]
+    return f"{safe_base_name[:50]}-{fingerprint}"
 
 
 class ChromaKnowledgeStore:
@@ -59,6 +80,10 @@ class ChromaKnowledgeStore:
         if not ids:
             return {"ids": [], "documents": [], "metadatas": []}
         return await anyio.to_thread.run_sync(lambda: self.collection.get(ids=ids, include=["documents", "metadatas"]))
+
+    async def delete_ids(self, ids: list[str]) -> None:
+        if ids:
+            await anyio.to_thread.run_sync(lambda: self.collection.delete(ids=ids))
 
     async def delete_document(self, document_id: int) -> None:
         await anyio.to_thread.run_sync(lambda: self.collection.delete(where={"document_id": document_id}))

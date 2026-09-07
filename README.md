@@ -1,26 +1,25 @@
 # Yostone Knowledge
 
-Yostone Knowledge 是部署在客户服务器上的企业知识库。它提供本地知识库、文档索引、RAG 对话、客户侧员工管理 API 和知识库授权；员工账号事实仍由 Yostone 云面板统一维护。
+Yostone Knowledge 是部署在客户服务器上的企业知识库。它提供本地知识库、文档索引、向量检索、客户侧员工管理 API 和知识库授权；员工账号事实仍由 Yostone 云面板统一维护。账号可以由云面板或客户知识库管理界面发起创建和维护，客户知识库只能通过受限 API 操作云端账号。
 
 ## 项目定位
 
 - **使用场景**：一套客户知识库对应一个公司，部署在该公司的服务器上。
 - **组织边界**：客户知识库不做 SaaS 多租户；公司边界由部署实例承担，不在业务表中增加 tenant 字段。
 - **账号边界**：云面板保存员工账号、密码和产品权限；客户知识库只保存员工最小映射和本地知识库 ACL。
-- **访问边界**：客户使用知识库内的管理界面创建员工和配置知识库授权，不直接登录云面板。
-- **后端栈**：FastAPI、SQLAlchemy、Alembic、Redis、MySQL；启用 AI 后增加 ChromaDB 与 OpenAI-compatible API。
+- **访问边界**：客户使用知识库内的管理界面创建、查询、修改或停用员工，并配置知识库授权；这些账号操作由知识库后端代理到云面板 API，客户不直接登录云面板或访问云面板数据库。
+- **后端栈**：FastAPI、SQLAlchemy、Alembic、Redis、MySQL、ChromaDB 与 OpenAI-compatible API。
 - **前端栈**：Vue 3、Vite、TypeScript、Element Plus、Pinia、Vue Router。
-- **向量检索**：启用 AI 后使用 ChromaDB 本地持久化目录存储向量和文本块索引。
-- **模型接入**：启用 AI 后通过 OpenAI-compatible chat 和 embedding endpoint 接入模型能力。
+- **向量检索**：使用 ChromaDB 本地持久化目录存储向量和文本块索引。
+- **模型接入**：使用本地 fastembed 或 OpenAI-compatible embedding endpoint。
 
 ## 功能范围
 
 ### 保留模块
 
-- 系统管理：用户、角色、菜单、字典、参数配置、操作日志。
+- 系统管理：本地技术管理员、角色、菜单、字典、参数配置、操作日志。
 - 公共能力：认证、RBAC、动态菜单、文件上传、Redis 缓存。
-- AI 对话：会话记录、模型配置、普通对话、结合知识库的 RAG 对话。
-- AI 知识库：知识库管理、文档上传、文本抽取、分块、embedding、Chroma 写入、召回验证（安装 `ai` 可选组后启用）。
+- AI 知识库：知识库管理、文档上传、文本抽取、分块、embedding、Chroma 写入、召回验证。
 
 ### 已移除或禁用
 
@@ -38,7 +37,7 @@ Yostone Knowledge 是部署在客户服务器上的企业知识库。它提供�
 │   │   ├── api/              # 系统 API 路由
 │   │   ├── core/             # 基础 CRUD、认证、异常、权限等
 │   │   ├── plugin/
-│   │   │   └── module_ai/    # AI 对话与知识库插件
+│   │   │   └── module_ai/    # AI 知识库模块
 │   │   └── scripts/          # 初始化和种子数据脚本
 │   ├── env/                  # 环境变量模板
 │   ├── tests/                # 后端测试
@@ -63,7 +62,6 @@ Yostone Knowledge 是部署在客户服务器上的企业知识库。它提供�
 - pnpm
 - MySQL 8+
 - Redis 6+
-- 启用 AI 对话时需要 OpenAI-compatible chat endpoint
 - 向量模型默认使用本地 fastembed；只有选择远程 embedding 时才需要 OpenAI-compatible embedding endpoint
 
 ## 后端配置
@@ -93,7 +91,6 @@ REDIS_DB_NAME = 1
 
 SECRET_KEY = "dev-only-change-this-secret-before-sharing"
 
-AI_ENABLE = True
 OPENAI_BASE_URL = "https://api.example.com"
 OPENAI_API_KEY = "your_api_key"
 OPENAI_MODEL = "your_chat_model"
@@ -113,35 +110,34 @@ KB_CONTROL_PLANE_TIMEOUT = 10
 KB_BOOTSTRAP_CLOUD_USER_ID = 0
 ```
 
+首次部署时不需要让客户手工填写环境变量。打开客户知识库登录页，点击“首次使用？绑定云面板”，由客户本地超级管理员填写本地管理员账号和密码，以及云面板登记该知识库实例后生成的实例 ID、服务凭证。该账号必须已由云面板管理员创建并设置为当前企业超管；绑定流程不会创建云端用户。云面板服务地址由客户知识库部署配置提供；知识库后端会先用本地管理员校验身份，再向云面板验证配置，成功后把服务凭证加密保存在客户知识库配置表中，不写入浏览器、不回显，也不直接访问云面板数据库。
+
+绑定完成后，绑定时的本地超级管理员已关联到云面板中已有的企业超管；后续员工直接使用云面板创建的企业员工账号和密码登录客户知识库。云面板和客户知识库的账号管理仍通过受限 API 完成；`KB_CONTROL_PLANE_*` 环境变量保留为部署自动化和本地开发的兼容回退配置。
+
 说明：
 
 - 后端使用 `chromadb.PersistentClient` 直接读写本地 Chroma 持久化目录。
-- 开发环境默认启用 AI；向量模型默认使用本地 `fastembed` 小模型 `BAAI/bge-small-zh-v1.5`。如需远程 embedding，可将 `EMBEDDING_PROVIDER` 改为 `openai` 并配置 `OPENAI_EMBEDDING_MODEL`。
+- AI 默认内置并启用；向量模型默认使用本地 `fastembed` 小模型 `BAAI/bge-small-zh-v1.5`。如需远程 embedding，可将 `EMBEDDING_PROVIDER` 改为 `openai` 并配置 `OPENAI_EMBEDDING_MODEL`。
 - `CHROMA_PERSIST_DIR` 是当前向量库数据目录，部署或备份时需要保留。
-- `KB_CONTROL_PLANE_SERVICE_CREDENTIAL` 是当前知识库实例调用云面板的服务凭证；员工密码不会写入客户知识库数据库。
-- `KB_BOOTSTRAP_CLOUD_USER_ID` 只用于首次部署时指定客户知识管理员的云端用户 ID；该用户成功登录并写入 `kb_member.local_role=owner` 后即可移除配置。
-- 客户侧员工映射保存在 `kb_member`，知识库授权保存在 `kb_knowledge_base_acl`；权限校验默认拒绝，云端账号停用或知识库产品权限关闭后会在下一次成员同步时关闭本地访问。
-- 客户知识库“模型配置”页面可点击“从云面板同步向量模型”，同步只写入来源、模型和地址，不会保存云面板 Provider Key；远程 embedding 使用客户服务器自己的 `OPENAI_API_KEY`。如果模型发生变化，请重新索引或清理旧 Chroma 集合后再检索。
+- `KB_CONTROL_PLANE_SERVICE_CREDENTIAL` 仅作为服务端 bootstrap fallback；页面绑定后服务凭证以加密值保存在客户知识库的受保护配置表中，员工密码不会写入客户知识库数据库。
+- `KB_BOOTSTRAP_CLOUD_USER_ID` 只用于指定预先由云面板创建的首个客户知识管理员；该用户成功登录并写入 `kb_member.local_role=owner` 后即可移除配置。
+- 客户侧员工最小映射保存在 `kb_member`，云端员工-知识库授权以知识库稳定 `uuid` 保存在云面板，本地 `kb_knowledge_base_acl` 只作为检索执行投影；授权保存先写云端，云端账号停用、产品权限关闭或资源授权撤销后会在下一次成员/身份同步时关闭本地访问。
+- 客户知识库不再从“系统管理 → 用户管理”维护企业员工；员工账号和知识库授权统一由云面板维护，客户侧入口只是受限 API 代理。
+- 云面板保存向量模型后会向已绑定的客户知识库自动推送来源、模型和地址；客户知识库不展示“模型配置”入口，仅通过受保护的推送接口接收运行时配置。推送不会传递或保存云面板 Provider Key；远程 embedding 使用客户服务器自己的 `OPENAI_API_KEY`。如果模型发生变化，请重新索引或清理旧 Chroma 集合后再检索。
 - 不要提交真实数据库密码、Redis 密码或模型 API key。
 
 ## 后端启动
 
 ```powershell
 cd backend
-# 基础后台
+# AI 知识库与检索随默认依赖装配
 uv sync
 uv run main.py run --env=dev
-
-# 启用 AI 知识库与 RAG
-uv sync --extra ai
-# 运行时也带上 extra，确保 reload 子进程使用 AI 依赖
-uv run --extra ai main.py run --env=dev
-# env/.env.dev 中 AI_ENABLE = True
 ```
 
 应用启动时会先执行已提交的 Alembic 迁移，再按 ORM 模型补齐缺失表并写入种子数据。修改模型后仍可运行 `uv run main.py revision --env=dev` 生成并审核迁移文件；应用启动不会自动生成迁移。多副本生产部署仍建议使用单独的迁移任务。
 
-`backend/requirements.txt` 仅包含基础后台依赖；启用 AI 的部署使用 `backend/requirements-ai.txt`。
+`backend/requirements.txt` 已包含后端和 AI 知识库依赖。
 
 默认开发配置中的 API 前缀为 `/api/v1`。Swagger 和 ReDoc 路径由 `backend/env/.env.dev` 中的 `DOCS_URL`、`REDOC_URL` 控制。
 
@@ -191,23 +187,23 @@ pnpm run build
 
 ## AI 知识库流程
 
-先执行 `uv sync --extra ai` 并设置 `AI_ENABLE=True`，再进行以下操作：
+先完成 `uv sync` 并配置模型服务，再进行以下操作：
 
-1. 在“AI 知识库 / 知识库管理”创建知识库。
-2. 在“AI 知识库 / 员工与权限”中从云面板同步或创建员工，并配置该员工可访问的知识库。
-3. 在“文档管理”上传 `.txt`、`.md`、`.pdf`、`.docx` 文件。
-4. 后端保存文件到 `backend/storage/knowledge`。
-5. 后端抽取文档文本并切分 chunk。
-6. 后端调用 embedding 模型生成向量。
-7. MySQL 保存知识库、文档、chunk 元数据和本地 ACL。
-8. ChromaDB 保存向量、chunk 文本和检索 metadata。
-9. 已绑定云端员工身份的请求，后端同时校验最近同步的云端员工状态、知识库产品权限和本地 ACL。
-10. 在“AI 对话”中选择有权访问的知识库进行 RAG 问答。
+1. 首次使用先在登录页绑定云面板；只需部署管理员完成一次。
+2. 使用云面板创建的员工账号登录，再在“AI 知识库 / 知识库管理”创建知识库。
+3. 在“AI 知识库 / 员工与知识库权限”中从云面板同步员工，或提交创建、修改、停用请求；这些账号操作由客户知识库后端调用云面板成员 API 完成，再配置该员工可访问的知识库。
+4. 在“文档管理”上传 `.txt`、`.md`、`.pdf`、`.docx` 文件。
+5. 后端保存文件到 `backend/storage/knowledge`。
+6. 后端抽取文档文本并切分 chunk。
+7. 后端调用 embedding 模型生成向量。
+8. MySQL 保存知识库、文档、chunk 元数据和本地 ACL。
+9. ChromaDB 保存向量、chunk 文本和检索 metadata。
+10. 已绑定云端员工身份的请求，后端同时校验最近同步的云端员工状态、知识库产品权限和本地 ACL。
+11. 在“检索测试”中验证有权访问的知识库召回结果。
 
 核心后端路径：
 
 ```txt
-backend/app/plugin/module_ai/chat/
 backend/app/plugin/module_ai/knowledge/
 ```
 
@@ -225,10 +221,10 @@ frontend/src/views/module_ai/
 ```powershell
 cd backend
 uv run pytest tests\core\test_optional_ai_plugin.py -q
-uv run --extra ai pytest tests\plugin\module_ai -q
+uv run pytest tests\plugin\module_ai -q
 python -m compileall -q app tests
 uv run ruff check app\plugin\module_ai app\scripts\initialize.py app\api\v1\module_system\__init__.py app\config\setting.py app\init_app.py tests --output-format concise
-uv run --extra ai python -c "import chromadb, openai, pypdf, docx"
+uv run python -c "import chromadb, openai, pypdf, docx"
 ```
 
 前端：
@@ -264,7 +260,7 @@ pnpm run type-check
 
 检查：
 
-- `KB_CONTROL_PLANE_API_URL`、实例 ID 和服务凭证是否由服务端正确注入。
+- 登录页的云面板绑定是否成功；如果使用环境变量回退，检查 `KB_CONTROL_PLANE_API_URL`、实例 ID 和服务凭证是否由服务端正确注入。
 - 员工是否在云面板处于启用状态，并已开通知识库产品权限。
 - 客户知识库的 `kb_member` 是否已同步，以及 `kb_knowledge_base_acl` 是否已授权。
 

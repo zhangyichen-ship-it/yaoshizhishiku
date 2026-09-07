@@ -69,6 +69,16 @@
               <FaSvgIcon icon="ri:lock-line" class="mr-2 text-base" />
               <span class="text-sm">{{ $t("topBar.user.lockScreen") }}</span>
             </li>
+            <li class="mb-3 last:mb-0">
+              <button
+                type="button"
+                class="flex w-full items-center p-2 select-none rounded-md cursor-pointer hover:bg-(--fa-gray-200) text-left"
+                @click="openPasswordDialog"
+              >
+                <FaSvgIcon icon="ri:key-2-line" class="mr-2 text-base" />
+                <span class="text-sm">{{ t("topBar.user.changePassword") }}</span>
+              </button>
+            </li>
             <div class="w-full h-px my-2 bg-g-300/80"></div>
             <li
               class="flex p-2 select-none rounded-md cursor-pointer last:mb-0 hover:bg-(--fa-gray-200) justify-center mt-5 mb-0 py-1.5 text-xs border border-g-400 hover:text-(--el-color-danger) hover:border-(--el-color-danger-light-3)"
@@ -82,12 +92,70 @@
     </ElPopover>
 
     <FaConfigInfoDrawer v-model="paramDrawerVisible" />
+    <FaDialog
+      v-model="passwordDialogVisible"
+      width="460px"
+      :title="t('topBar.user.changePassword')"
+      :confirm-loading="passwordSaving"
+      form-mode="update"
+      :confirm-text="t('common.confirm')"
+      :cancel-text="t('common.cancel')"
+      @confirm="submitPasswordChange"
+      @cancel="closePasswordDialog"
+      @close="resetPasswordForm"
+    >
+      <ElForm
+        ref="passwordFormRef"
+        :model="passwordForm"
+        :rules="passwordRules"
+        label-position="top"
+        @submit.prevent="submitPasswordChange"
+      >
+        <p class="mb-4 text-xs text-g-500">{{ t("topBar.user.passwordChangeHint") }}</p>
+        <ElFormItem :label="t('topBar.user.oldPassword')" prop="old_password">
+          <ElInput
+            v-model="passwordForm.old_password"
+            type="password"
+            show-password
+            clearable
+            autocomplete="current-password"
+            :placeholder="t('common.inputText')"
+            maxlength="128"
+          />
+        </ElFormItem>
+        <ElFormItem :label="t('topBar.user.newPassword')" prop="new_password">
+          <ElInput
+            v-model="passwordForm.new_password"
+            type="password"
+            show-password
+            clearable
+            autocomplete="new-password"
+            :placeholder="t('common.inputText')"
+            maxlength="128"
+          />
+        </ElFormItem>
+        <ElFormItem :label="t('topBar.user.confirmPassword')" prop="confirm_password">
+          <ElInput
+            v-model="passwordForm.confirm_password"
+            type="password"
+            show-password
+            clearable
+            autocomplete="new-password"
+            :placeholder="t('common.inputText')"
+            maxlength="128"
+          />
+        </ElFormItem>
+      </ElForm>
+    </FaDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import { reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ElMessageBox } from "element-plus";
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from "element-plus";
+import { useRouter } from "vue-router";
+import { UserAPI, type PasswordFormState } from "@/api/module_system/user";
 import { useUserStore } from "@stores";
 import { mittBus } from "@utils";
 
@@ -95,10 +163,36 @@ defineOptions({ name: "FaUserMenu" });
 
 const { t } = useI18n();
 const userStore = useUserStore();
+const router = useRouter();
 
 const { info: userInfo } = storeToRefs(userStore);
 const userMenuPopover = ref();
 const paramDrawerVisible = ref(false);
+const passwordDialogVisible = ref(false);
+const passwordSaving = ref(false);
+const passwordFormRef = ref<FormInstance>();
+const passwordForm = reactive<PasswordFormState>({
+  old_password: "",
+  new_password: "",
+  confirm_password: "",
+});
+
+const passwordRules = computed<FormRules>(() => ({
+  old_password: [{ required: true, message: t("common.required"), trigger: "blur" }],
+  new_password: [
+    { required: true, message: t("common.required"), trigger: "blur" },
+    { min: 6, max: 128, message: t("common.lengthRange", { min: 6, max: 128 }), trigger: "blur" },
+  ],
+  confirm_password: [
+    { required: true, message: t("common.required"), trigger: "blur" },
+    {
+      validator: (_rule, value, callback) => {
+        callback(value === passwordForm.new_password ? undefined : new Error(t("common.isEqual")));
+      },
+      trigger: "blur",
+    },
+  ],
+}));
 
 const userAvatar = computed(() => {
   const a = (userInfo.value as { avatar?: string })?.avatar?.trim();
@@ -117,6 +211,40 @@ const displayEmail = computed(() => (userInfo.value as { email?: string })?.emai
 function openParamConfig(): void {
   closeUserMenu();
   paramDrawerVisible.value = true;
+}
+
+function openPasswordDialog(): void {
+  closeUserMenu();
+  passwordDialogVisible.value = true;
+}
+
+function resetPasswordForm(): void {
+  passwordForm.old_password = "";
+  passwordForm.new_password = "";
+  passwordForm.confirm_password = "";
+  passwordFormRef.value?.clearValidate();
+}
+
+function closePasswordDialog(): void {
+  passwordDialogVisible.value = false;
+  resetPasswordForm();
+}
+
+async function submitPasswordChange(): Promise<void> {
+  const valid = await passwordFormRef.value?.validate().catch(() => false);
+  if (!valid || passwordSaving.value) return;
+
+  passwordSaving.value = true;
+  try {
+    await UserAPI.changeCurrentUserPassword(passwordForm);
+    ElMessage.success(t("topBar.user.passwordChanged"));
+    passwordDialogVisible.value = false;
+    resetPasswordForm();
+    userStore.resetAllState();
+    await router.replace({ name: "Login" });
+  } finally {
+    passwordSaving.value = false;
+  }
 }
 
 function lockScreen(): void {

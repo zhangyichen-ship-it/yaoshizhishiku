@@ -21,11 +21,11 @@ from .schema import (
 
 
 class CustomerMemberService:
-    """Own the local employee projection and customer-side knowledge ACL."""
+    """Project cloud employee and knowledge-base access data for local execution."""
 
     def __init__(self, auth: AuthSchema, client: CloudMemberClient | None = None) -> None:
         self.auth = auth
-        self.client = client or CloudMemberClient()
+        self.client = client or CloudMemberClient(db=getattr(auth, "db", None))
 
     def _db(self):
         db = getattr(self.auth, "db", None)
@@ -65,6 +65,13 @@ class CustomerMemberService:
             "deleted_time": None,
         }
 
+    @staticmethod
+    def _remote_access_keys(data: dict[str, Any]) -> list[str]:
+        raw_keys = data.get("knowledge_base_keys", [])
+        if not isinstance(raw_keys, list) or any(not isinstance(key, str) or not key.strip() for key in raw_keys):
+            raise CustomException(msg="云端知识库授权返回格式错误", status_code=502)
+        return list(dict.fromkeys(key.strip() for key in raw_keys))
+
     async def _upsert_member(self, data: dict[str, Any]) -> KbMemberModel:
         db = self._db()
         values = self._remote_member_values(data)
@@ -94,8 +101,9 @@ class CustomerMemberService:
         return member
 
     async def sync_member(self, data: dict[str, Any]) -> KbMemberModel:
-        """Persist the minimal local projection returned by the control plane."""
+        """Persist cloud member data and reconcile the local access projection."""
         member = await self._upsert_member(data)
+        await self._sync_access_projection(member, self._remote_access_keys(data))
         bootstrap_user_id = settings.KB_BOOTSTRAP_CLOUD_USER_ID
         if (
             bootstrap_user_id
@@ -114,6 +122,48 @@ class CustomerMemberService:
                 member.local_role = "owner"
                 await self._db().flush()
         return member
+
+    async def _sync_access_projection(self, member: KbMemberModel, remote_keys: list[str]) -> None:
+        db = self._db()
+        allowed_keys = remote_keys if member.cloud_status == 0 and member.cloud_knowledge_enabled else []
+        bases = (
+            await db.execute(
+                select(KnowledgeBaseModel.id, KnowledgeBaseModel.uuid).where(
+                    KnowledgeBaseModel.is_deleted.is_(False),
+                    KnowledgeBaseModel.is_enabled.is_(True),
+                )
+            )
+        ).all()
+        base_id_by_key = {base_uuid: base_id for base_id, base_uuid in bases}
+        allowed_base_ids = {base_id_by_key[key] for key in allowed_keys if key in base_id_by_key}
+        grants = (
+            await db.execute(
+                select(KnowledgeBaseAccessModel).where(KnowledgeBaseAccessModel.member_id == member.id)
+            )
+        ).scalars().all()
+        grants_by_base = {grant.knowledge_base_id: grant for grant in grants}
+        now = datetime.now()
+        for knowledge_base_id in allowed_base_ids:
+            grant = grants_by_base.get(knowledge_base_id)
+            if grant is None:
+                db.add(
+                    KnowledgeBaseAccessModel(
+                        member_id=member.id,
+                        knowledge_base_id=knowledge_base_id,
+                        granted_by_id=None,
+                    )
+                )
+            else:
+                grant.is_deleted = False
+                grant.deleted_time = None
+                grant.updated_time = now
+                grant.granted_by_id = None
+        for grant in grants:
+            if grant.knowledge_base_id not in allowed_base_ids and not grant.is_deleted:
+                grant.is_deleted = True
+                grant.deleted_time = now
+                grant.updated_time = now
+        await db.flush()
 
     async def _get_member(self, user_id: int) -> KbMemberModel:
         if user_id <= 0:
@@ -169,7 +219,7 @@ class CustomerMemberService:
 
     async def list_members(self) -> list[KbMemberOutSchema]:
         remote_members = await self.client.list_members()
-        local_members = [await self._upsert_member(item) for item in remote_members]
+        local_members = [await self.sync_member(item) for item in remote_members]
         remote_user_ids = {item.cloud_user_id for item in local_members}
         stale_query = select(KbMemberModel).where(KbMemberModel.is_deleted.is_(False))
         if remote_user_ids:
@@ -179,6 +229,7 @@ class CustomerMemberService:
             member.cloud_status = 1
             member.cloud_knowledge_enabled = False
             member.last_synced_at = datetime.now()
+            await self._sync_access_projection(member, [])
         access_map = await self._access_ids_by_member([item.id for item in local_members])
         # GET normally rolls back its request session.  This endpoint performs
         # an intentional directory projection sync, so persist that projection.
@@ -190,7 +241,7 @@ class CustomerMemberService:
         if not key or len(key) > 128:
             raise CustomException(msg="幂等键不合法", status_code=422)
         remote = await self.client.create_member(data.model_dump(mode="json", exclude_none=True), key)
-        member = await self._upsert_member(remote)
+        member = await self.sync_member(remote)
         return self._output(member, (await self._access_ids_by_member([member.id])).get(member.id, []))
 
     async def update_member(self, user_id: int, data: KbMemberUpdateSchema) -> KbMemberOutSchema:
@@ -198,11 +249,13 @@ class CustomerMemberService:
         if not payload:
             raise CustomException(msg="至少需要修改一项员工信息", status_code=422)
         remote = await self.client.update_member(user_id, payload)
-        member = await self._upsert_member(remote)
+        member = await self.sync_member(remote)
         return self._output(member, (await self._access_ids_by_member([member.id])).get(member.id, []))
 
     async def get_access(self, user_id: int) -> KnowledgeBaseAccessOutSchema:
         member = await self._get_member(user_id)
+        remote = await self.client.get_member_access(user_id)
+        await self._sync_access_projection(member, self._remote_access_keys(remote))
         access_map = await self._access_ids_by_member([member.id])
         return KnowledgeBaseAccessOutSchema(user_id=user_id, knowledge_base_ids=access_map.get(member.id, []))
 
@@ -216,58 +269,34 @@ class CustomerMemberService:
             if knowledge_base_id not in normalized_ids:
                 normalized_ids.append(knowledge_base_id)
 
-        if normalized_ids:
-            existing_base_ids = set(
-                (
-                    await db.execute(
-                        select(KnowledgeBaseModel.id).where(
-                            KnowledgeBaseModel.id.in_(normalized_ids),
-                            KnowledgeBaseModel.is_deleted.is_(False),
-                        )
-                    )
-                ).scalars().all()
-            )
-            if existing_base_ids != set(normalized_ids):
-                raise CustomException(msg="知识库不存在或无权授权", status_code=404)
-
-        grants = (
+        bases = (
             await db.execute(
-                select(KnowledgeBaseAccessModel).where(
-                    KnowledgeBaseAccessModel.member_id == member.id,
-                )
+                select(KnowledgeBaseModel).where(KnowledgeBaseModel.is_deleted.is_(False))
             )
         ).scalars().all()
-        grants_by_base = {grant.knowledge_base_id: grant for grant in grants}
-        now = datetime.now()
-        operator = getattr(self.auth, "user", None)
-        operator_id = None if getattr(operator, "auth_source", None) == "cloud_kb" else getattr(operator, "id", None)
-        for knowledge_base_id in normalized_ids:
-            grant = grants_by_base.get(knowledge_base_id)
-            if grant is None:
-                db.add(
-                    KnowledgeBaseAccessModel(
-                        member_id=member.id,
-                        knowledge_base_id=knowledge_base_id,
-                        granted_by_id=operator_id,
-                    )
-                )
-            else:
-                grant.is_deleted = False
-                grant.deleted_time = None
-                grant.updated_time = now
-                grant.granted_by_id = operator_id
+        bases_by_id = {base.id: base for base in bases}
+        if set(normalized_ids) - bases_by_id.keys():
+            raise CustomException(msg="知识库不存在或无权授权", status_code=404)
 
-        for knowledge_base_id, grant in grants_by_base.items():
-            if knowledge_base_id not in normalized_ids and not grant.is_deleted:
-                grant.is_deleted = True
-                grant.deleted_time = now
-                grant.updated_time = now
-
-        await db.flush()
-        return KnowledgeBaseAccessOutSchema(user_id=user_id, knowledge_base_ids=normalized_ids)
+        resources = [
+            {
+                "key": base.uuid,
+                "name": base.name,
+                "status": 0 if base.is_enabled else 1,
+            }
+            for base in bases
+        ]
+        remote = await self.client.set_member_access(
+            user_id,
+            resources=resources,
+            knowledge_base_keys=[bases_by_id[base_id].uuid for base_id in normalized_ids],
+        )
+        await self._sync_access_projection(member, self._remote_access_keys(remote))
+        access_map = await self._access_ids_by_member([member.id])
+        return KnowledgeBaseAccessOutSchema(user_id=user_id, knowledge_base_ids=access_map.get(member.id, []))
 
     async def accessible_knowledge_base_ids(self, ids: list[int] | None) -> list[int] | None:
-        """Return IDs allowed by the local ACL, failing closed for employees."""
+        """Return IDs allowed by the cloud access projection, failing closed for employees."""
         normalized = list(dict.fromkeys(ids or []))
         if any(item <= 0 for item in normalized):
             raise CustomException(msg="知识库ID不合法", status_code=422)
@@ -298,6 +327,18 @@ class CustomerMemberService:
         ).scalar_one_or_none()
         if not member or member.cloud_status != 0 or not member.cloud_knowledge_enabled:
             raise CustomException(msg="当前员工未开通知识库或已被停用", status_code=403)
+
+        if member.local_role in {"owner", "acl_admin"}:
+            admin_scope = select(KnowledgeBaseModel.id).where(
+                KnowledgeBaseModel.is_deleted.is_(False),
+                KnowledgeBaseModel.is_enabled.is_(True),
+            )
+            if ids is not None:
+                admin_scope = admin_scope.where(KnowledgeBaseModel.id.in_(normalized))
+            allowed = set((await db.execute(admin_scope)).scalars().all())
+            if ids is not None and allowed != set(normalized):
+                raise CustomException(msg="知识库不存在或无权访问", status_code=403)
+            return normalized if ids is not None else sorted(allowed)
 
         allowed_query = (
             select(KnowledgeBaseAccessModel.knowledge_base_id)

@@ -9,6 +9,7 @@ from app.core.base_schema import AuthSchema
 from app.core.dependencies import AuthPermission
 from app.core.router_class import OperationLogRoute
 
+from .member_client import CloudMemberClient
 from .member_service import CustomerMemberService
 from .schema import (
     KbMemberCreateSchema,
@@ -26,6 +27,7 @@ from .schema import (
     RetrievalTestSchema,
 )
 from .service import KnowledgeService
+from .usage_service import get_model_usage_summary
 
 KnowledgeRouter = APIRouter(route_class=OperationLogRoute, prefix="/knowledge", tags=["AI", "Knowledge"])
 
@@ -146,10 +148,11 @@ async def upload_document_controller(
 )
 async def reindex_document_controller(
     id: Annotated[int, Path(ge=1)],
+    background_tasks: BackgroundTasks,
     auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:document:create"]))],
 ) -> JSONResponse:
-    result = await KnowledgeService(auth).index_document(document_id=id)
-    return SuccessResponse(data=result, msg="reindex knowledge document success")
+    result = await KnowledgeService(auth).reindex_document(document_id=id, background_tasks=background_tasks)
+    return SuccessResponse(data=result, msg="reindex knowledge document submitted")
 
 
 @KnowledgeRouter.delete(
@@ -189,6 +192,30 @@ async def search_knowledge_controller(
 ) -> JSONResponse:
     result = await KnowledgeService(auth).search(data=data)
     return SuccessResponse(data=result, msg="knowledge search success")
+
+
+@KnowledgeRouter.get(
+    "/usage-summary",
+    summary="查询近七日模型用量",
+    response_model=ResponseSchema[dict[str, Any]],
+)
+async def get_model_usage_summary_controller(
+    auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:member:query"]))],
+) -> JSONResponse:
+    result = await get_model_usage_summary(auth.db)  # type: ignore[arg-type]
+    return SuccessResponse(data=result, msg="query model usage summary success")
+
+
+@KnowledgeRouter.get(
+    "/billing-summary",
+    summary="查询云端租户额度",
+    response_model=ResponseSchema[dict[str, Any]],
+)
+async def get_billing_summary_controller(
+    auth: Annotated[AuthSchema, Depends(AuthPermission(["module_ai:member:query"]))],
+) -> JSONResponse:
+    result = await CloudMemberClient(db=auth.db).get_billing_summary()
+    return SuccessResponse(data=result, msg="查询云端租户额度成功")
 
 
 @KnowledgeRouter.get(

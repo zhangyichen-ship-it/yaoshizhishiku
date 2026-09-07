@@ -1,6 +1,6 @@
 # Yostone Knowledge Backend
 
-FastAPI backend for one customer knowledge-base deployment. AI knowledge-base and RAG capabilities are installed as an optional `ai` extra.
+FastAPI backend for one customer knowledge-base deployment. AI knowledge-base and RAG capabilities are part of the built-in backend.
 
 ## Runtime Scope
 
@@ -10,34 +10,31 @@ The backend keeps the admin foundation:
 - RBAC permissions and menu authorization
 - Local administrator users, roles, menus, dictionaries, params, and audit logs
 - Common file upload
-- AI chat and session history
 - AI knowledge-base metadata and document indexing
-- Customer-side employee mapping and knowledge-base ACL
+- Customer-side employee projection and cloud-synced knowledge-base access projection
 
 This deployment represents one company. Tenant middleware, tenant cache startup, tenant seed models, tenant switching, and cloud-panel customer login are not part of the active application.
 
 ## Account Boundary
 
-The cloud panel is the authority for employee usernames, password hashes, account status, and product grants. This backend calls the instance-scoped cloud member API with a server-side credential and stores only the safe projection in `kb_member`:
+The cloud panel is the authority for employee usernames, password hashes, account status, product grants, knowledge-base resources, and employee access grants. This backend calls the instance-scoped cloud member API with a server-side credential and stores only safe projections:
 
 - cloud user ID, username, name, email, status, and effective knowledge-base product grant;
 - no employee password, cloud service credential, or full cloud directory;
-- local knowledge-base grants in `kb_knowledge_base_acl`.
+- cloud-authoritative knowledge-base grants projected to `kb_knowledge_base_acl` for local retrieval.
 
-The current batch exposes employee management APIs through this knowledge-base application. The application forwards create/update operations to the cloud panel and then refreshes its local projection. A knowledge-base request is allowed only when the mapped cloud employee is enabled, has the knowledge-base product grant, and has a non-deleted local ACL grant. There is no device quota or per-device permission model.
+The current batch exposes employee management APIs through this knowledge-base application. The application forwards create/update operations to the cloud panel and then refreshes its local projection. Access changes send the full local resource catalog and selected stable UUIDs to the cloud panel first; the local ACL is updated only after the cloud write succeeds. A knowledge-base request is allowed only when the mapped cloud employee is enabled, has the knowledge-base product grant, and has a non-deleted local projection of the cloud grant. There is no device quota or per-device permission model.
 
 ## Knowledge Base Architecture
 
 - MySQL stores knowledge bases, documents, chunks, parse/index status, audit fields, and file metadata.
 - ChromaDB stores vectors and chunk documents.
 - `chromadb.PersistentClient` stores vectors in the local Chroma persist directory.
-- Chat completions use the `openai` client through OpenAI-compatible providers.
 - Embeddings default to the local `fastembed` model `BAAI/bge-small-zh-v1.5`; OpenAI-compatible embeddings remain available by setting `EMBEDDING_PROVIDER=openai`.
 
 Key modules:
 
 ```txt
-app/plugin/module_ai/chat/
 app/plugin/module_ai/knowledge/
 ```
 
@@ -49,10 +46,9 @@ Copy and edit the development env file:
 copy env\.env.dev.example env\.env.dev
 ```
 
-AI/vector settings are only required after installing the AI extra:
+AI/vector settings are part of the default backend configuration:
 
 ```env
-AI_ENABLE=True
 OPENAI_API_KEY=
 OPENAI_BASE_URL=
 OPENAI_MODEL=
@@ -70,25 +66,23 @@ KB_BOOTSTRAP_CLOUD_USER_ID=0
 ```
 
 `CHROMA_PERSIST_DIR` is the active local Chroma data directory. Preserve it during deployment, backup, and migration.
-When changing embedding models, clear the existing Chroma collection or use a new `CHROMA_COLLECTION_NAME` to avoid vector dimension conflicts.
-`KB_CONTROL_PLANE_SERVICE_CREDENTIAL` is injected only on the customer server. Never store it in the database or expose it to the frontend.
-`KB_BOOTSTRAP_CLOUD_USER_ID` is a one-time deployment value for the first customer-side knowledge administrator. After that member is marked `owner` in `kb_member`, removing the environment value does not remove the local role.
+Embedding indexes use a stable Chroma collection per vector provider, API address, and model. Changing the vector model keeps the old collection and requires reindexing documents before the new collection contains vectors.
+`KB_CONTROL_PLANE_API_URL` is the server-side cloud member API endpoint supplied by the knowledge-base deployment configuration; it is not requested on the login page.
+`KB_CONTROL_PLANE_SERVICE_CREDENTIAL` is an optional server-side bootstrap fallback. The login page can bind the cloud panel once; the backend then stores the credential only in encrypted form in its protected configuration table and never exposes it to the frontend.
+`KB_BOOTSTRAP_CLOUD_USER_ID` is a one-time deployment value for the first customer-side knowledge administrator, which must already be created in the cloud panel as an enterprise owner. Binding never creates a cloud user. After that member is marked `owner` in `kb_member`, removing the environment value does not remove the local role.
 
-Use the customer-side model configuration page to explicitly pull the vector provider, model, and address from the bound cloud-panel instance. The sync action does not copy a Provider Key; remote embedding continues to use the customer server's local `OPENAI_API_KEY`. A model change requires re-indexing or a new Chroma collection.
+The cloud panel pushes the non-secret vector provider, model, and address to this bound customer knowledge base after saving. The customer console has no model-configuration or chat page; it only receives the protected vector snapshot. The push does not copy a Provider Key; remote embedding continues to use the customer server's local `OPENAI_API_KEY`. A model change requires re-indexing or a new Chroma collection.
 
 ## Start
 
 ```powershell
-# Core admin only
+# Built-in backend with AI knowledge-base and retrieval
 uv sync
 uv run main.py run --env=dev
 
-# Enable AI knowledge-base and RAG
-uv sync --extra ai
-# Set AI_ENABLE=True in env/.env.dev
 ```
 
-`requirements.txt` exports the core backend profile. Use `requirements-ai.txt` for deployments that enable AI.
+`requirements.txt` exports the complete backend profile, including AI knowledge-base dependencies.
 
 Application startup applies committed Alembic migrations, then creates any
 remaining active ORM tables before seeding data. The customer member/ACL schema
@@ -97,7 +91,7 @@ revision --env=dev` to generate later migrations and review them before
 deployment. Multi-replica production deployments should still run one
 dedicated migration job.
 
-Application startup seeds base data when tables are empty. Optional AI tables still require the AI models to be installed and included in the deployment migration workflow.
+Application startup seeds base data when tables are empty. AI tables are installed and included in the deployment migration workflow by default.
 
 Uploaded files are stored under the private `storage/upload` directory. Generic
 files are served through an authenticated preview route, while avatar and
@@ -108,17 +102,17 @@ root-relative paths instead of server filesystem paths.
 
 ```powershell
 uv run pytest tests\core\test_optional_ai_plugin.py -q
-uv run --extra ai pytest tests\plugin\module_ai -q
+uv run pytest tests\plugin\module_ai -q
 python -m compileall -q app tests
 uv run ruff check app\plugin\module_ai app\scripts\initialize.py app\api\v1\module_system\__init__.py app\config\setting.py app\init_app.py tests --output-format concise
-uv run --extra ai python -c "import chromadb, fastembed, openai, pypdf, docx"
+uv run python -c "import chromadb, fastembed, openai, pypdf, docx"
 ```
 
 The customer-side permission regression tests cover cloud-member projection,
 default-deny ACL checks, and ACL replacement/revocation:
 
 ```powershell
-uv run --extra ai pytest tests\plugin\module_ai\knowledge\test_member_access.py -q
+uv run pytest tests\plugin\module_ai\knowledge\test_member_access.py -q
 ```
 
 ## Notes
@@ -127,4 +121,4 @@ uv run --extra ai pytest tests\plugin\module_ai\knowledge\test_member_access.py 
 - Knowledge document upload supports `.txt`, `.md`, `.pdf`, and `.docx`.
 - User-edited model endpoints are blocked when they resolve to local/private networks; configure `MODEL_ALLOWED_HOSTS` only for explicitly trusted provider hosts.
 - API keys are not exposed by the model-config endpoint; it only reports whether the key is configured.
-- When `AI_ENABLE=True` but the `ai` extra is absent, the backend logs the missing modules and starts without the AI plugin.
+- If a built-in AI dependency is missing, startup fails explicitly and reports the missing module; run `uv sync` before starting the backend.

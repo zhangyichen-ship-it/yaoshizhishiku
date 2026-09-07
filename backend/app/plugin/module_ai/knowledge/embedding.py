@@ -37,10 +37,6 @@ class LocalFastEmbedEmbeddingClient:
 class OpenAICompatibleEmbeddingClient:
     """Embedding client for OpenAI-compatible providers."""
 
-    # 单批次最多提交的文本条数；超过 provider 单请求条数/token 上限会导致整批失败，
-    # 分批后单批失败不影响其它批次已经成功的向量。
-    BATCH_SIZE = 64
-
     def __init__(
         self,
         *,
@@ -58,9 +54,9 @@ class OpenAICompatibleEmbeddingClient:
         if not texts:
             return []
         embeddings: list[list[float]] = []
-        for start in range(0, len(texts), self.BATCH_SIZE):
-            batch = texts[start : start + self.BATCH_SIZE]
-            embeddings.extend(await self._embed_batch(batch))
+        # ponytail: sequential requests match JDCloud's single-input contract; add bounded concurrency only if latency becomes a measured problem.
+        for text in texts:
+            embeddings.extend(await self._embed_one(text))
         _validate_embeddings(
             embeddings,
             len(texts),
@@ -68,12 +64,12 @@ class OpenAICompatibleEmbeddingClient:
         )
         return embeddings
 
-    async def _embed_batch(self, batch: list[str]) -> list[list[float]]:
-        response = await self.client.embeddings.create(model=self.model_name, input=batch)
+    async def _embed_one(self, text: str) -> list[list[float]]:
+        response = await self.client.embeddings.create(model=self.model_name, input=[text])
         embeddings = [item.embedding for item in response.data or [] if getattr(item, "embedding", None)]
         _validate_embeddings(
             embeddings,
-            len(batch),
+            1,
             empty_message=("Embedding service returned no vectors. Check OPENAI_EMBEDDING_MODEL and whether OPENAI_BASE_URL supports the /embeddings endpoint."),
         )
         return embeddings

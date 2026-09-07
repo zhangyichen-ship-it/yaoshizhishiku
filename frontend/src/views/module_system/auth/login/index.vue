@@ -42,18 +42,81 @@
                       <p class="sub-title">{{ panelSubTitle }}</p>
                     </div>
 
-                    <FaLoginAccountForm
-                      ref="accountFormRef"
-                      v-model:login-form="loginForm"
-                      :rules="rules"
-                      :form-key="formKey"
-                      :loading="loading"
-                      :captcha-enabled="captchaEnabled"
-                      :captcha-image="captchaImage"
-                      :captcha-loading="captchaLoading"
-                      @submit="handleSubmit"
-                      @refresh-captcha="loadCaptcha(true)"
-                    />
+                    <template v-if="setupMode">
+                      <ElForm
+                        ref="cloudConfigFormRef"
+                        :model="cloudConfigForm"
+                        :rules="cloudConfigRules"
+                        label-position="top"
+                        @submit.prevent="handleCloudConfigSubmit"
+                      >
+                        <ElFormItem :label="t('login.cloudConfig.adminUsername')" prop="admin_username">
+                          <ElInput
+                            v-model="cloudConfigForm.admin_username"
+                            autocomplete="username"
+                            :placeholder="t('login.placeholder.username')"
+                          />
+                        </ElFormItem>
+                        <ElFormItem :label="t('login.cloudConfig.adminPassword')" prop="admin_password">
+                          <ElInput
+                            v-model="cloudConfigForm.admin_password"
+                            type="password"
+                            show-password
+                            autocomplete="current-password"
+                            :placeholder="t('login.placeholder.password')"
+                          />
+                        </ElFormItem>
+                        <ElFormItem :label="t('login.cloudConfig.instanceId')" prop="instance_id">
+                          <ElInputNumber
+                            v-model="cloudConfigForm.instance_id"
+                            :min="1"
+                            :controls="false"
+                            class="w-full"
+                            :placeholder="t('login.cloudConfig.instanceIdPlaceholder')"
+                          />
+                        </ElFormItem>
+                        <ElFormItem :label="t('login.cloudConfig.serviceCredential')" prop="service_credential">
+                          <ElInput
+                            v-model="cloudConfigForm.service_credential"
+                            type="password"
+                            show-password
+                            autocomplete="new-password"
+                            :placeholder="t('login.cloudConfig.serviceCredentialPlaceholder')"
+                          />
+                        </ElFormItem>
+                        <ElButton type="primary" native-type="submit" :loading="loading" class="w-full">
+                          {{ t("login.cloudConfig.submit") }}
+                        </ElButton>
+                      </ElForm>
+                      <div class="mt-4 text-center">
+                        <ElButton link type="primary" @click="showLoginMode">
+                          {{ t("login.cloudConfig.back") }}
+                        </ElButton>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <FaLoginAccountForm
+                        ref="accountFormRef"
+                        v-model:login-form="loginForm"
+                        :rules="rules"
+                        :form-key="formKey"
+                        :loading="loading"
+                        :captcha-enabled="captchaEnabled"
+                        :captcha-image="captchaImage"
+                        :captcha-loading="captchaLoading"
+                        @submit="handleSubmit"
+                        @refresh-captcha="loadCaptcha(true)"
+                      />
+                      <div v-if="cloudConfigAvailable" class="mt-4 text-center">
+                        <ElButton link type="primary" @click="showCloudConfigSetup">
+                          {{
+                            cloudConfigConfigured
+                              ? t("login.cloudConfig.updateLink")
+                              : t("login.cloudConfig.setupLink")
+                          }}
+                        </ElButton>
+                      </div>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -111,11 +174,11 @@
 
 <script setup lang="ts">
 import type { LocationQuery, RouteLocationRaw } from "vue-router";
-import type { LoginFormData } from "@/api/module_system/auth";
+import type { CloudConfigBindForm, LoginFormData } from "@/api/module_system/auth";
 import AuthAPI from "@/api/module_system/auth";
 import { useConfigStore, useAppStore, useSettingsStore, useUserStore } from "@stores";
 import { Auth, getConfigValue, HttpError } from "@utils";
-import { ElNotification, type FormRules } from "element-plus";
+import { ElNotification, type FormInstance, type FormRules } from "element-plus";
 import FaLoginAccountForm from "@/components/views/fa-login/forms/FaLoginAccountForm.vue";
 import FaAuthTopBar from "@/components/views/fa-login/widgets/FaAuthTopBar.vue";
 import FaEnterpriseIntro from "@/components/views/fa-login/widgets/FaEnterpriseIntro.vue";
@@ -130,8 +193,11 @@ const { t, locale } = useI18n();
 
 const { panelAlign } = useLoginPanelAlign();
 
-const panelTitle = computed(() => t("login.title"));
-const panelSubTitle = computed(() => t("login.subTitle"));
+const setupMode = ref(false);
+const cloudConfigAvailable = ref(false);
+const cloudConfigConfigured = ref(false);
+const panelTitle = computed(() => (setupMode.value ? t("login.cloudConfig.title") : t("login.title")));
+const panelSubTitle = computed(() => (setupMode.value ? t("login.cloudConfig.subTitle") : t("login.subTitle")));
 
 const footerCopyright = computed(() =>
   getConfigValue(configStore.configData, ["copyright", "sys_web_copyright"])
@@ -159,6 +225,7 @@ const router = useRouter();
 const route = useRoute();
 
 const accountFormRef = ref<InstanceType<typeof FaLoginAccountForm> | null>(null);
+const cloudConfigFormRef = ref<FormInstance | null>(null);
 const loading = ref(false);
 
 const loginForm = reactive<LoginFormData>({
@@ -173,6 +240,82 @@ const loginForm = reactive<LoginFormData>({
 const captchaEnabled = ref(false);
 const captchaImage = ref("");
 const captchaLoading = ref(false);
+
+const cloudConfigForm = reactive<CloudConfigBindForm>({
+  admin_username: "",
+  admin_password: "",
+  instance_id: 0,
+  service_credential: "",
+});
+
+const cloudConfigRules = computed<FormRules<CloudConfigBindForm>>(() => ({
+  admin_username: [{ required: true, message: t("login.cloudConfig.adminUsernameRequired"), trigger: "blur" }],
+  admin_password: [{ required: true, message: t("login.cloudConfig.adminPasswordRequired"), trigger: "blur" }],
+  instance_id: [
+    { required: true, message: t("login.cloudConfig.instanceIdRequired"), trigger: "change" },
+    { type: "number", min: 1, message: t("login.cloudConfig.instanceIdRequired"), trigger: "change" },
+  ],
+  service_credential: [
+    { required: true, message: t("login.cloudConfig.serviceCredentialRequired"), trigger: "blur" },
+  ],
+}));
+
+async function loadCloudConfigStatus() {
+  try {
+    const response = await AuthAPI.getCloudConfigStatus();
+    const data = response.data.data;
+    cloudConfigAvailable.value = Boolean(data?.available);
+    cloudConfigConfigured.value = Boolean(data?.configured);
+  } catch {
+    cloudConfigAvailable.value = false;
+    cloudConfigConfigured.value = false;
+  }
+}
+
+function showCloudConfigSetup() {
+  setupMode.value = true;
+  cloudConfigForm.admin_password = "";
+  cloudConfigForm.service_credential = "";
+}
+
+function showLoginMode() {
+  setupMode.value = false;
+  cloudConfigFormRef.value?.resetFields();
+}
+
+async function handleCloudConfigSubmit() {
+  if (!cloudConfigFormRef.value || !(await cloudConfigFormRef.value.validate())) return;
+
+  try {
+    loading.value = true;
+    await AuthAPI.bindCloudConfig({
+      ...cloudConfigForm,
+      instance_id: Number(cloudConfigForm.instance_id),
+    });
+    cloudConfigConfigured.value = true;
+    setupMode.value = false;
+    cloudConfigForm.admin_username = "";
+    cloudConfigForm.admin_password = "";
+    cloudConfigForm.instance_id = 0;
+    cloudConfigForm.service_credential = "";
+    ElNotification({
+      title: t("login.cloudConfig.successTitle"),
+      message: t("login.cloudConfig.success"),
+      type: "success",
+    });
+  } catch (error) {
+    if (!(error instanceof HttpError)) {
+      console.error("[Login] 云面板绑定失败:", error);
+      ElNotification({
+        title: t("login.cloudConfig.errorTitle"),
+        message: t("login.cloudConfig.error"),
+        type: "error",
+      });
+    }
+  } finally {
+    loading.value = false;
+  }
+}
 
 /** Load a fresh login challenge and optionally reveal adaptive CAPTCHA. */
 async function loadCaptcha(forceVisible = false) {
@@ -260,6 +403,7 @@ async function consumeOAuthTicket(): Promise<boolean> {
 onMounted(async () => {
   try {
     await configStore.getConfig(true);
+    await loadCloudConfigStatus();
     if (await consumeOAuthTicket()) return;
     await loadCaptcha();
   } catch (error) {
