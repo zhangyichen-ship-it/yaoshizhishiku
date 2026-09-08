@@ -27,10 +27,28 @@ echo "Deploying $BACKEND_IMAGE and $FRONTEND_IMAGE"
 
 echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
-# 国内机器拉 ghcr.io / Docker Hub 往往很慢，分步拉并打印进度，避免看起来像卡死。
-docker compose pull mysql redis
-docker compose pull backend frontend
-docker compose up -d --remove-orphans
+pull_with_retry() {
+  services="$*"
+  attempt=1
+  max_attempts=8
+  while [ "$attempt" -le "$max_attempts" ]; do
+    echo "Pull attempt ${attempt}/${max_attempts}: ${services}"
+    if docker compose pull ${services}; then
+      return 0
+    fi
+    echo "拉取失败（常见于国内访问 ghcr.io / Docker Hub 中断），20 秒后重试。"
+    sleep 20
+    attempt=$((attempt + 1))
+  done
+  echo "多次拉取仍失败：${services}"
+  return 1
+}
+
+# 国内机器拉镜像经常 unexpected EOF，失败后重试可续传已下载的层。
+pull_with_retry mysql redis
+pull_with_retry backend frontend
+# 服务器上没有前后端源码，禁止 compose 在 pull 失败时改去本地 build。
+docker compose up -d --no-build --remove-orphans
 
 container_status() {
   docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$1" 2>/dev/null || echo missing
