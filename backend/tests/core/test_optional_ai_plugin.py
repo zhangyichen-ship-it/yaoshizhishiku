@@ -62,7 +62,11 @@ def test_customer_kb_manifest_exposes_knowledge_routes_only():
     manifest = tomllib.loads((Path(__file__).parents[2] / "app/plugin/module_ai/plugin.toml").read_text(encoding="utf-8"))
 
     assert manifest["websocket_routers"] == []
-    assert manifest["routers"] == ["chat.controller:ChatRouter", "knowledge.controller:KnowledgeRouter"]
+    assert manifest["routers"] == [
+        "chat.controller:ChatRouter",
+        "knowledge.controller:KnowledgeRouter",
+        "knowledge.app_data.controller:AppDataRouter",
+    ]
     assert not any(permission.startswith(("module_ai:chat:", "module_ai:session:", "module_ai:memory:")) for permission in manifest["permissions"])
 
 
