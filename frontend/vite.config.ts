@@ -84,10 +84,15 @@ export default ({ mode }: { mode: string }) => {
       open: true,
       proxy: {
         [env.VITE_APP_BASE_API]: {
-          target: env.VITE_API_BASE_URL, // 代理目标地址：https://后端地址
-          secure: false, // 请求是否https
-          changeOrigin: true, // 是否跨域
-          // rewrite: (path: string) => path.replace(new RegExp("^" + env.VITE_APP_BASE_API), ""),
+          target: env.VITE_API_BASE_URL,
+          secure: false,
+          changeOrigin: true,
+          // 与生产 nginx 一致：去掉 /api/v1，后端实际路由是 /system、/common、/ai
+          rewrite: (path: string) => {
+            const prefix = env.VITE_APP_BASE_API;
+            if (!path.startsWith(prefix)) return path;
+            return path.slice(prefix.length) || "/";
+          },
         },
       },
     },

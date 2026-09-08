@@ -28,6 +28,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "pnpm run lint:eslint && pnpm run lint:prettier && pnpm run lint:stylelint",
+    "lint:ci": "eslint --cache \"src/**/*.{vue,ts,js}\" && stylelint \"src/**/*.{css,scss,vue}\" --cache --allow-empty-input",
     "lint:eslint": "eslint --cache \"src/**/*.{vue,ts,js}\" --fix",
     "lint:prettier": "prettier --write \"**/*.{js,cjs,ts,json,tsx,css,less,scss,vue,html,md}\"",
     "lint:stylelint": "stylelint \"**/*.{css,scss,vue}\" --cache --fix",

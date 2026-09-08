@@ -34,7 +34,7 @@ export class ComponentLoader {
       : `/${componentPath.replace(/^\/+/, "")}`;
     const fullPath = `../../views${normalized}.vue`;
     const fullPathWithIndex = `../../views${normalized}/index.vue`;
-    let module = this.modules[fullPath] || this.modules[fullPathWithIndex];
+    const module = this.modules[fullPath] || this.modules[fullPathWithIndex];
 
     if (!module) {
       console.error(

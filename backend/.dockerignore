@@ -1,0 +1,37 @@
+# VCS / IDE
+.git
+.gitignore
+.idea
+.vscode
+**/.DS_Store
+
+# Python 环境与缓存（绝不能把宿主机 .venv 打进镜像）
+.venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+*.egg-info
+
+# 测试与本地脚本不进运行镜像
+tests/
+*.md
+README.md
+
+# 运行时数据（容器内重建空目录，部署时挂卷）
+logs/
+data/
+storage/
+*.db
+
+# 密钥文件；保留 example
+env/.env
+env/.env.dev
+env/.env.prod
+
+# 构建产物
+dist/
+build/

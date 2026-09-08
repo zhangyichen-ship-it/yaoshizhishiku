@@ -1,0 +1,26 @@
+.git
+.github
+.gitignore
+.idea
+.vscode
+**/.DS_Store
+
+node_modules
+dist
+dist-ssr
+.vite
+.eslintcache
+.stylelintcache
+*.local
+
+.env
+.env.*
+!.env.production
+
+.husky
+src/__tests__
+*.md
+README.md
+
+# npm lock leftover; this project uses pnpm
+package-lock.json

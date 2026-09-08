@@ -23,7 +23,7 @@ pnpm install
 pnpm dev
 ```
 
-默认开发端口由 **`.env`** 中的 **`VITE_PORT`** 决定（当前模板为 **5173**）。
+默认开发端口由复制后的 **`.env`** 中的 **`VITE_PORT`** 决定（模板为 **5180**）。生产构建读取 **`.env.production`**。
 
 ### 与后端联调
 
@@ -126,7 +126,13 @@ src/
 | `VITE_APP_WS_ENDPOINT` | 兼容旧版的 WebSocket 地址（当前知识库控制台不使用） |
 | `VITE_APP_TITLE`       | 页面标题（可被后端参数配置覆盖）                 |
 
-完整列表以仓库内 **`.env`**、**`.env.development`** 为准；模板说明见 **`.env.example`**。修改任一 env 后需 **重启** `pnpm dev`。
+完整列表以仓库内 **`.env.example`**（本地开发）和 **`.env.production`**（`pnpm build` / Docker）为准。复制模板：
+
+```powershell
+copy .env.example .env
+```
+
+修改任一 env 后需 **重启** `pnpm dev`。
 
 ## 路由与菜单
 
@@ -152,7 +158,7 @@ src/
 ## 构建与部署
 
 - 输出目录：**`dist/`**
-- 部署在子路径时配置 **`VITE_BASE_URL`**，并配置网关/Nginx 将前端资源与 `/api` 等转发到后端
+- 部署在子路径时配置 **`VITE_BASE_URL`**；Docker 部署使用 `frontend/Dockerfile`，由 nginx 将 `/api/v1/` 转发到后端 `8004`
 - 生产构建可能移除部分 `console`（见 **`vite.config.ts`** 中 `terserOptions`）
 
 ## 代码规范与 Git

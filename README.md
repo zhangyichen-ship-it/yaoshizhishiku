@@ -26,30 +26,27 @@ Yostone Knowledge 是部署在客户服务器上的企业知识库。它提供�
 - 多租户中间件、组织切换、组织注册、组织运营入口。
 - SaaS 订阅、授权售卖、平台运营类需求文档。
 - 通知、工单、岗位、监控等可选后台产品入口。
-- Dockerfile、docker-compose、Docker nginx/redis/mysql 配置。
 
 ## 目录结构
 
 ```txt
 .
+├── .github/workflows/        # CI（检查）与 CD（构建并推送镜像）
+├── docker-compose.yml        # MySQL / Redis / 后端 / 前端
+├── .env.example              # compose 环境变量模板
 ├── backend/                  # FastAPI 后端
+│   ├── Dockerfile
 │   ├── app/
-│   │   ├── api/              # 系统 API 路由
-│   │   ├── core/             # 基础 CRUD、认证、异常、权限等
-│   │   ├── plugin/
-│   │   │   └── module_ai/    # AI 知识库模块
-│   │   └── scripts/          # 初始化和种子数据脚本
 │   ├── env/                  # 环境变量模板
-│   ├── tests/                # 后端测试
+│   ├── tests/
 │   └── pyproject.toml
 ├── frontend/                  # Vue 3 frontend
-│   ├── src/
-│   │   ├── api/               # Frontend API wrappers
-│   │   ├── router/            # Routes
-│   │   ├── stores/            # Pinia state
-│   │   └── views/             # Pages
+│   ├── Dockerfile
+│   ├── deploy/nginx.conf     # 前端镜像内 nginx，反代 /api/v1 到后端
+│   ├── .env.example          # 本地开发模板，复制为 .env
+│   ├── .env.production       # pnpm build / 镜像构建使用
 │   └── package.json
-└── docs/                     # 项目文档与实训资料
+└── docs/
 ```
 
 ## 服务依赖
@@ -182,8 +179,37 @@ pnpm run dev
 ```powershell
 pnpm run type-check
 pnpm test
+pnpm run lint:ci
 pnpm run build
 ```
+
+## Docker 与 CI/CD
+
+本地一键起前后端（含 MySQL、Redis）：
+
+```powershell
+copy .env.example .env
+docker compose up -d --build
+```
+
+默认页面在 `http://localhost:8080`，API 由 nginx 把 `/api/v1/` 转到后端容器 `8004`。后端容器内端口固定为 `8004`，不要改成 8001/8008。
+
+GitHub Actions：
+
+- `.github/workflows/ci.yml`：后端 ruff + pytest；前端 type-check、单测、lint、build；并验证前后端 Docker 镜像能构建。
+- `.github/workflows/cd.yml`：推送到 `main`/`master` 或打 `v*` 标签时，构建并推送镜像到 GHCR：
+  - `ghcr.io/zhangyichen-ship-it/yaoshi/backend`
+  - `ghcr.io/zhangyichen-ship-it/yaoshi/frontend`
+
+客户机使用已推送镜像时，在根目录 `.env` 设置：
+
+```env
+BACKEND_IMAGE=ghcr.io/zhangyichen-ship-it/yaoshi/backend:latest
+FRONTEND_IMAGE=ghcr.io/zhangyichen-ship-it/yaoshi/frontend:latest
+PULL_POLICY=always
+```
+
+然后 `docker compose pull && docker compose up -d`。私有 GHCR 包需要先 `docker login ghcr.io`。
 
 ## AI 知识库流程
 

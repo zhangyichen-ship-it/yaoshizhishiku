@@ -161,8 +161,8 @@ onMounted(async () => {
 <style scoped lang="scss">
 .ip-list {
   display: grid;
-  width: min(100%, 520px);
   gap: 10px;
+  width: min(100%, 520px);
 }
 
 .ip-list__item {

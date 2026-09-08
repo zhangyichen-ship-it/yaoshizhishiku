@@ -184,9 +184,9 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .login-trend-card {
+  background: var(--fa-color-surface, var(--el-bg-color));
   border: 1px solid var(--fa-color-border, var(--el-border-color));
   border-radius: 8px;
-  background: var(--fa-color-surface, var(--el-bg-color));
 }
 
 .login-trend-card :deep(.el-card__header) {
@@ -212,15 +212,15 @@ onUnmounted(() => {
   margin-bottom: 7px;
   font-size: 10px;
   font-weight: 750;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--el-color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
 }
 
 .eyebrow-mark {
   width: 6px;
   height: 6px;
-  background: currentColor;
+  background: currentcolor;
   border-radius: 50%;
   box-shadow: 0 0 0 4px var(--el-color-primary-light-9);
 }
@@ -241,8 +241,8 @@ onUnmounted(() => {
 
 .section-actions {
   display: inline-flex;
-  gap: 8px;
   flex: 0 0 auto;
+  gap: 8px;
   align-items: center;
 }
 
@@ -256,9 +256,9 @@ onUnmounted(() => {
   display: grid;
   gap: 4px;
   padding: 12px 14px;
+  background: var(--el-fill-color-lighter);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 7px;
-  background: var(--el-fill-color-lighter);
 }
 
 .trend-summary__item span,
@@ -325,15 +325,15 @@ onUnmounted(() => {
   }
 }
 
-@media (max-width: 640px) {
+@media (width <= 640px) {
   .login-trend-card :deep(.el-card__body),
   .login-trend-card :deep(.el-card__header) {
     padding: 16px;
   }
 
   .section-heading {
-    align-items: stretch;
     flex-direction: column;
+    align-items: stretch;
   }
 
   .section-actions {

@@ -14,7 +14,8 @@ __pycache__
 .env.dev
 .env.prod
 !.env.example
-!frontend/.env
+!frontend/.env.example
+!frontend/.env.production
 
 *.egg
 *.egg-info
@@ -70,6 +71,7 @@ docker/.env
 docker/docker-compose.yaml
 
 frontend/node_modules
+frontend/package-lock.json
 frontend/dist
 frontend/.vite
 *.bak

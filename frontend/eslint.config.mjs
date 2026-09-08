@@ -13,10 +13,11 @@ import tseslint from "typescript-eslint";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// 读取 .auto-import.json 文件的内容，并将其解析为 JSON 对象
-const autoImportConfig = JSON.parse(
-  fs.readFileSync(path.resolve(__dirname, ".auto-import.json"), "utf-8")
-);
+// unplugin-auto-import 在首次 vite 构建后生成；CI / 纯 lint 时文件可能还不存在
+const autoImportPath = path.resolve(__dirname, ".auto-import.json");
+const autoImportConfig = fs.existsSync(autoImportPath)
+  ? JSON.parse(fs.readFileSync(autoImportPath, "utf-8"))
+  : { globals: {} };
 
 export default [
   // 忽略文件（flat config 中 ignores 需在最前面）
