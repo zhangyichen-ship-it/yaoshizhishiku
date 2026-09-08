@@ -115,5 +115,5 @@ jobs:
           key: ${{ secrets.SIYAO }}
           port: 22
           envs: GHCR_TOKEN,GHCR_USERNAME,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_REF_TYPE,GITHUB_REF_NAME
-          command_timeout: 60m
+          command_timeout: 480m
           script: bash /www/wwwroot/yaoshizhishiku/.github/scripts/remote-deploy.sh
