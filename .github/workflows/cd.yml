@@ -58,8 +58,6 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=sha-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -78,7 +76,6 @@ jobs:
     name: Deploy to server
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: ${{ secrets.HOSTIP != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,7 +86,7 @@ jobs:
           host: ${{ secrets.HOSTIP }}
           username: ${{ secrets.HOSTNAME }}
           key: ${{ secrets.SIYAO }}
-          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          port: 22
           script: mkdir -p /www/wwwroot/yaoshizhishiku
 
       - name: Copy compose files
@@ -98,7 +95,7 @@ jobs:
           host: ${{ secrets.HOSTIP }}
           username: ${{ secrets.HOSTNAME }}
           key: ${{ secrets.SIYAO }}
-          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          port: 22
           source: "docker-compose.yml,.env.example,.github/scripts/remote-deploy.sh"
           target: /www/wwwroot/yaoshizhishiku
           overwrite: true
@@ -116,7 +113,7 @@ jobs:
           host: ${{ secrets.HOSTIP }}
           username: ${{ secrets.HOSTNAME }}
           key: ${{ secrets.SIYAO }}
-          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          port: 22
           envs: GHCR_TOKEN,GHCR_USERNAME,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_REF_TYPE,GITHUB_REF_NAME
           script_stop: true
           command_timeout: 15m
