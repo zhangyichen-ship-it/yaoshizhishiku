@@ -26,7 +26,10 @@ export PULL_POLICY=always
 echo "Deploying $BACKEND_IMAGE and $FRONTEND_IMAGE"
 
 echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-docker compose pull
+
+# 国内机器拉 ghcr.io / Docker Hub 往往很慢，分步拉并打印进度，避免看起来像卡死。
+docker compose pull mysql redis
+docker compose pull backend frontend
 docker compose up -d --remove-orphans
 
 container_status() {
