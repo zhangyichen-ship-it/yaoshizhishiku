@@ -32,8 +32,13 @@ jobs:
           cache-dependency-glob: backend/uv.lock
       - name: Install backend dependencies
         run: uv sync --frozen
+      - name: Prepare test env file
+        run: |
+          if [ ! -f env/.env.dev ]; then
+            cp env/.env.dev.example env/.env.dev
+          fi
       - name: Ruff
-        run: uv run ruff check app tests
+        run: uv run ruff check --no-fix app tests
       - name: Tests
         run: uv run pytest -q
 
@@ -59,14 +64,14 @@ jobs:
         run: pnpm install --frozen-lockfile
         env:
           HUSKY: "0"
-      - name: Type check
-        run: pnpm type-check
       - name: Unit tests
         run: pnpm test
-      - name: Lint
-        run: pnpm lint:ci
       - name: Build
         run: pnpm build
+      - name: Type check
+        run: pnpm type-check
+      - name: Lint
+        run: pnpm lint:ci
       - name: Production dependency audit
         run: pnpm audit --prod
 

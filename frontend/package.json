@@ -9,7 +9,7 @@
     "dev": "vite",
     "dev:force": "vite --force",
     "prod": "vite --mode prod",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vite build",
     "build:pro": "pnpm vite build --mode pro",
     "build:gitee": "pnpm vite build --mode gitee",
     "build:dev": "pnpm vite build --mode dev",

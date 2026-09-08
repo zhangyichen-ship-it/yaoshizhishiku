@@ -71,7 +71,7 @@ useResizeObserver(chartRef, () => {
 // 监听 options 变化，更新图表
 watch(
   () => props.options,
-  (newOptions) => {
+  (newOptions: echarts.EChartsCoreOption | undefined) => {
     if (chartInstance && newOptions) {
       chartInstance.setOption(newOptions);
     }
