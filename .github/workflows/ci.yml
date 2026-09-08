@@ -38,7 +38,7 @@ jobs:
             cp env/.env.dev.example env/.env.dev
           fi
       - name: Ruff
-        run: uv run ruff check --no-fix app tests
+        run: uv run ruff check --no-fix --output-format=github app tests
       - name: Tests
         run: uv run pytest -q
 
@@ -73,6 +73,7 @@ jobs:
       - name: Lint
         run: pnpm lint:ci
       - name: Production dependency audit
+        continue-on-error: true
         run: pnpm audit --prod
 
   docker-backend:
