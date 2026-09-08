@@ -197,19 +197,30 @@ docker compose up -d --build
 GitHub Actions：
 
 - `.github/workflows/ci.yml`：后端 ruff + pytest；前端 type-check、单测、lint、build；并验证前后端 Docker 镜像能构建。
-- `.github/workflows/cd.yml`：推送到 `main`/`master` 或打 `v*` 标签时，构建并推送镜像到 GHCR：
-  - `ghcr.io/zhangyichen-ship-it/yaoshi/backend`
-  - `ghcr.io/zhangyichen-ship-it/yaoshi/frontend`
+- `.github/workflows/cd.yml`：推送到 `main`/`master` 或打 `v*` 标签时，构建并推送镜像到 GHCR，再 SSH 部署到服务器 `/www/wwwroot/yaoshizhishiku`：
+  - `ghcr.io/zhangyichen-ship-it/yaoshizhishiku/backend`
+  - `ghcr.io/zhangyichen-ship-it/yaoshizhishiku/frontend`
 
-客户机使用已推送镜像时，在根目录 `.env` 设置：
+### 服务器首次准备（只需做一次）
 
-```env
-BACKEND_IMAGE=ghcr.io/zhangyichen-ship-it/yaoshi/backend:latest
-FRONTEND_IMAGE=ghcr.io/zhangyichen-ship-it/yaoshi/frontend:latest
-PULL_POLICY=always
+CD 会自动创建 `/www/wwwroot/yaoshizhishiku`，并上传 `docker-compose.yml`。若还没有 `.env`，会从模板生成一份。你需要提前确认：
+
+1. 服务器已安装 Docker 和 Compose，`HOSTNAME` 用户能执行 `docker`（在 `docker` 组或使用 root）。
+2. `HOSTNAME` 对 `/www/wwwroot` 有写权限（宝塔环境通常用 root）。
+3. 安全组放行 SSH 22 端口。
+4. 首次部署后尽快编辑 `/www/wwwroot/yaoshizhishiku/.env`，把 `SECRET_KEY`、MySQL/Redis 密码改成生产值。
+
+```bash
+docker version
+docker compose version
+sudo mkdir -p /www/wwwroot
+# 若 SSH 用户不是 root，需要：
+sudo chown -R "$USER:$USER" /www/wwwroot/yaoshizhishiku
 ```
 
-然后 `docker compose pull && docker compose up -d`。私有 GHCR 包需要先 `docker login ghcr.io`。
+GitHub Secrets（`HOSTIP`、`HOSTNAME`、`SIYAO`、`GHCR_TOKEN`）配好后即可部署。未配置 `HOSTIP` 时，CD 仍会推送镜像，但会跳过部署。
+
+之后推送到 `main` 会自动：构建镜像 → 推 GHCR → 写入 `/www/wwwroot/yaoshizhishiku` → `docker compose pull && up`。页面默认 `http://服务器IP:8080`。
 
 ## AI 知识库流程
 
