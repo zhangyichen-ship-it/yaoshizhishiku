@@ -76,9 +76,25 @@ jobs:
     name: Deploy to server
     needs: build-and-push
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pack images on GitHub runner
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: bash .github/scripts/pack-images.sh
 
       - name: Ensure deploy directory exists
         uses: appleboy/ssh-action@v1.2.2
@@ -87,7 +103,7 @@ jobs:
           username: ${{ secrets.HOSTNAME }}
           key: ${{ secrets.SIYAO }}
           port: 22
-          script: mkdir -p /www/wwwroot/yaoshizhishiku
+          script: mkdir -p /www/wwwroot/yaoshizhishiku /tmp
 
       - name: Copy compose files
         uses: appleboy/scp-action@v0.1.7
@@ -100,20 +116,31 @@ jobs:
           target: /www/wwwroot/yaoshizhishiku
           overwrite: true
 
-      - name: Pull images and start stack
-        uses: appleboy/ssh-action@v1.2.2
-        env:
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          GHCR_USERNAME: ${{ github.repository_owner }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_REF_TYPE: ${{ github.ref_type }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+      - name: Copy image archive
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.HOSTIP }}
           username: ${{ secrets.HOSTNAME }}
           key: ${{ secrets.SIYAO }}
           port: 22
-          envs: GHCR_TOKEN,GHCR_USERNAME,GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_REF_TYPE,GITHUB_REF_NAME
-          command_timeout: 480m
+          source: yostone-images.tar.gz
+          target: /tmp
+          overwrite: true
+          timeout: 600s
+
+      - name: Load images and start stack
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          IMAGE_ARCHIVE: /tmp/yostone-images.tar.gz
+        with:
+          host: ${{ secrets.HOSTIP }}
+          username: ${{ secrets.HOSTNAME }}
+          key: ${{ secrets.SIYAO }}
+          port: 22
+          envs: GITHUB_REPOSITORY,GITHUB_SHA,GITHUB_REF_TYPE,GITHUB_REF_NAME,IMAGE_ARCHIVE
+          command_timeout: 60m
           script: bash /www/wwwroot/yaoshizhishiku/.github/scripts/remote-deploy.sh

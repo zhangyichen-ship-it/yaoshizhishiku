@@ -16,6 +16,7 @@ __pycache__
 !.env.example
 !frontend/.env.example
 !frontend/.env.production
+yostone-images.tar.gz
 
 *.egg
 *.egg-info

@@ -2,15 +2,12 @@
 set -euo pipefail
 
 DEPLOY_PATH=/www/wwwroot/yaoshizhishiku
+IMAGE_ARCHIVE="${IMAGE_ARCHIVE:-/tmp/yostone-images.tar.gz}"
 cd "$DEPLOY_PATH"
 
 if [ ! -f .env ]; then
   cp .env.example .env
   echo "已生成 $DEPLOY_PATH/.env（来自模板）。请尽快改成生产密码，不要长期使用示例值。"
-fi
-if [ -z "${GHCR_TOKEN:-}" ]; then
-  echo "缺少 GitHub Secret GHCR_TOKEN（需要 read:packages 的 PAT）。"
-  exit 1
 fi
 
 REPO_LC="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
@@ -21,33 +18,43 @@ else
 fi
 export BACKEND_IMAGE="ghcr.io/${REPO_LC}/backend:${IMAGE_TAG}"
 export FRONTEND_IMAGE="ghcr.io/${REPO_LC}/frontend:${IMAGE_TAG}"
-export PULL_POLICY=always
 
 echo "Deploying $BACKEND_IMAGE and $FRONTEND_IMAGE"
 
-echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+if [ -f "$IMAGE_ARCHIVE" ]; then
+  echo "从 GitHub runner 传来的镜像包加载（不访问 ghcr.io）"
+  gzip -dc "$IMAGE_ARCHIVE" | docker load
+  rm -f "$IMAGE_ARCHIVE"
+  export PULL_POLICY=never
+else
+  if [ -z "${GHCR_TOKEN:-}" ]; then
+    echo "缺少镜像包，且没有 GHCR_TOKEN，无法部署。"
+    exit 1
+  fi
+  export PULL_POLICY=always
+  echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
-pull_with_retry() {
-  services="$*"
-  attempt=1
-  max_attempts=8
-  while [ "$attempt" -le "$max_attempts" ]; do
-    echo "Pull attempt ${attempt}/${max_attempts}: ${services}"
-    if docker compose pull ${services}; then
-      return 0
-    fi
-    echo "拉取失败（常见于国内访问 ghcr.io / Docker Hub 中断），20 秒后重试。"
-    sleep 20
-    attempt=$((attempt + 1))
-  done
-  echo "多次拉取仍失败：${services}"
-  return 1
-}
+  pull_with_retry() {
+    services="$*"
+    attempt=1
+    max_attempts=8
+    while [ "$attempt" -le "$max_attempts" ]; do
+      echo "Pull attempt ${attempt}/${max_attempts}: ${services}"
+      if docker compose pull ${services}; then
+        return 0
+      fi
+      echo "拉取失败，20 秒后重试。"
+      sleep 20
+      attempt=$((attempt + 1))
+    done
+    echo "多次拉取仍失败：${services}"
+    return 1
+  }
 
-# 国内机器拉镜像经常 unexpected EOF，失败后重试可续传已下载的层。
-pull_with_retry mysql redis
-pull_with_retry backend frontend
-# 服务器上没有前后端源码，禁止 compose 在 pull 失败时改去本地 build。
+  pull_with_retry mysql redis
+  pull_with_retry backend frontend
+fi
+
 docker compose up -d --no-build --remove-orphans
 
 container_status() {
